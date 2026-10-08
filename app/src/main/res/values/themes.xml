@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.NC.Light" parent="android:Theme.Material.Light.DarkActionBar">
+        <item name="android:colorPrimary">#0082C9</item>
+        <item name="android:colorPrimaryDark">#006AA3</item>
+        <item name="android:statusBarColor">#006AA3</item>
+        <item name="android:colorAccent">#0082C9</item>
+        <item name="android:colorControlActivated">#0082C9</item>
+        <item name="android:colorButtonNormal">#0082C9</item>
+        <item name="android:buttonStyle">@style/NC.Button</item>
+        <item name="android:windowBackground">@color/nc_background_light</item>
+    </style>
+
+    <style name="Theme.NC.Dark" parent="android:Theme.Material">
+        <item name="android:colorPrimary">#0082C9</item>
+        <item name="android:colorPrimaryDark">#006AA3</item>
+        <item name="android:statusBarColor">#006AA3</item>
+        <item name="android:colorAccent">#4DB3F0</item>
+        <item name="android:colorControlActivated">#4DB3F0</item>
+        <item name="android:colorButtonNormal">#0082C9</item>
+        <item name="android:buttonStyle">@style/NC.Button</item>
+        <item name="android:windowBackground">@color/nc_background_dark</item>
+    </style>
+
+    <!-- App theme: follows the system until the user picks light or dark. -->
+    <style name="Theme.NC" parent="Theme.NC.Light" />
+
+    <style name="NC.Button" parent="android:Widget.Material.Button">
+        <item name="android:textColor">#FFFFFF</item>
+    </style>
+</resources>

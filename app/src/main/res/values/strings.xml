@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Nextcloud Photo Widget</string>
+    <string name="widget_description">Random photo from your Nextcloud</string>
+    <string name="widget_setup">Open the Nextcloud Photo Widget app to set up</string>
+    <string name="widget_empty">No photos found in the selected folder</string>
+
+    <string name="label_server">Nextcloud server</string>
+    <string name="hint_server">https://cloud.example.com</string>
+    <string name="button_login">Log in</string>
+    <string name="status_logged_out">Not logged in</string>
+    <string name="status_logged_in">Logged in as %1$s</string>
+    <string name="status_waiting">Waiting for login in the browser…</string>
+    <string name="status_failed">Login failed: %1$s</string>
+
+    <string name="label_folder">Photo folder (includes subfolders)</string>
+    <string name="folder_select">Select this folder</string>
+    <string name="folder_up">.. (up)</string>
+    <string name="error_list_failed">Could not load folders: %1$s</string>
+    <string name="label_interval">Change picture every</string>
+    <string name="button_save">Save and apply</string>
+    <string name="label_appearance">Appearance</string>
+    <string name="theme_system">System</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_dark">Dark</string>
+    <string name="saved">Saved</string>
+    <string name="error_not_logged_in">Log in first</string>
+    <string name="error_bad_url">Enter a valid server address</string>
+    <string name="help_widget">Add the widget from the home screen widget picker. Tap the left edge for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app.</string>
+
+    <string-array name="interval_labels">
+        <item>15 minutes</item>
+        <item>30 minutes</item>
+        <item>1 hour</item>
+        <item>3 hours</item>
+        <item>6 hours</item>
+        <item>12 hours</item>
+        <item>24 hours</item>
+    </string-array>
+</resources>

@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Sparkles -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,18Q54,22 58,22Q54,22 54,26Q54,22 50,22Q54,22 54,18z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M86,48Q86,52 90,52Q86,52 86,56Q86,52 82,52Q86,52 86,48z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M22,48Q22,52 26,52Q22,52 22,56Q22,52 18,52Q22,52 22,48z" />
+
+    <!-- Left card: sunset -->
+    <group
+        android:pivotX="54"
+        android:pivotY="70"
+        android:rotation="-26">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5z" />
+        <path
+            android:fillColor="#FF7E67"
+            android:pathData="M45,32h18v22h-18z" />
+        <path
+            android:fillColor="#FFD166"
+            android:pathData="M49.5,45a4.5,4.5 0 1 0 9,0a4.5,4.5 0 1 0 -9,0z" />
+        <path
+            android:fillColor="#5B2A86"
+            android:pathData="M45,54V49C49,45 53,47 56,49C59,47 61,47 63,49V54z" />
+    </group>
+
+    <!-- Right card: beach -->
+    <group
+        android:pivotX="54"
+        android:pivotY="70"
+        android:rotation="26">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5z" />
+        <path
+            android:fillColor="#FFE08A"
+            android:pathData="M45,32h18v22h-18z" />
+        <path
+            android:fillColor="#FF7E67"
+            android:pathData="M53.5,40a3.5,3.5 0 1 0 7,0a3.5,3.5 0 1 0 -7,0z" />
+        <path
+            android:fillColor="#2BB6D8"
+            android:pathData="M45,47h18v7h-18z" />
+        <path
+            android:fillColor="#7FDDF0"
+            android:pathData="M45,50h18v1.6h-18z" />
+    </group>
+
+    <!-- Middle card: mountain -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5z" />
+    <path
+        android:fillColor="#8ED3F5"
+        android:pathData="M45,32h18v22h-18z" />
+    <path
+        android:fillColor="#3D5A80"
+        android:pathData="M45,54L54,37L63,54z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,37L57.5,44L54,42L50.5,44z" />
+    <path
+        android:fillColor="#47B881"
+        android:pathData="M45,54V51.5h18V54z" />
+
+    <!-- Cloud -->
+    <group
+        android:pivotX="54"
+        android:pivotY="80"
+        android:scaleX="0.78"
+        android:scaleY="0.78">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M36,64h38a8,8 0 0 1 0,16h-38a8,8 0 0 1 0,-16z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M37,63a9,9 0 1 0 18,0a9,9 0 1 0 -18,0z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M48,58a12,12 0 1 0 24,0a12,12 0 1 0 -24,0z" />
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M64,65a8,8 0 1 0 16,0a8,8 0 1 0 -16,0z" />
+    </group>
+
+    <!-- Three interlocked rings, as in the Nextcloud logo -->
+    <group
+        android:pivotX="54"
+        android:pivotY="72"
+        android:scaleX="0.65"
+        android:scaleY="0.65"
+        android:translateX="8"
+        android:translateY="2">
+        <path
+            android:fillColor="#0082C9"
+            android:fillType="evenOdd"
+            android:pathData="M37.9,72a5.6,5.6 0 1 0 11.2,0a5.6,5.6 0 1 0 -11.2,0zM39.9,72a3.6,3.6 0 1 0 7.2,0a3.6,3.6 0 1 0 -7.2,0z" />
+        <path
+            android:fillColor="#0082C9"
+            android:fillType="evenOdd"
+            android:pathData="M58.9,72a5.6,5.6 0 1 0 11.2,0a5.6,5.6 0 1 0 -11.2,0zM60.9,72a3.6,3.6 0 1 0 7.2,0a3.6,3.6 0 1 0 -7.2,0z" />
+        <path
+            android:fillColor="#0082C9"
+            android:fillType="evenOdd"
+            android:pathData="M46.4,71.5a7.6,7.6 0 1 0 15.2,0a7.6,7.6 0 1 0 -15.2,0zM48.6,71.5a5.4,5.4 0 1 0 10.8,0a5.4,5.4 0 1 0 -10.8,0z" />
+    </group>
+</vector>

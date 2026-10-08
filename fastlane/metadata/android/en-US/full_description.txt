@@ -1,0 +1,15 @@
+Shows a random picture from a folder on your Nextcloud server as a home screen widget, without syncing your photo library to the phone. Only one downscaled preview is stored at a time.
+
+<b>Features</b>
+<ul>
+<li>Random photo from a chosen Nextcloud folder, subfolders included</li>
+<li>Picture changes automatically every 15 minutes to 24 hours</li>
+<li>Tap the left edge for the previous picture, the right edge for the next one</li>
+<li>Tap the center to open the picture in the official Nextcloud app</li>
+<li>Light, dark or system theme</li>
+</ul>
+
+<b>Privacy</b>
+The app only talks to the Nextcloud server you configure. Login uses Nextcloud Login Flow v2, so a revocable app password is stored on the device and never your real password. There is no tracking and no analytics.
+
+Requires Android 8.0 or newer and a Nextcloud server reachable over HTTPS. This is an unofficial app and is not affiliated with Nextcloud GmbH.

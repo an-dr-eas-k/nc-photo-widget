@@ -1,0 +1,31 @@
+# Gradle
+.gradle/
+build/
+.kotlin/
+
+# Local configuration (machine-specific paths)
+local.properties
+
+# IDE
+.idea/
+*.iml
+.vscode/
+captures/
+
+# Android
+*.apk
+*.aab
+.externalNativeBuild/
+.cxx/
+
+# Signing
+*.jks
+*.keystore
+keystore.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Unredacted screenshots and scratch files
+tmp/

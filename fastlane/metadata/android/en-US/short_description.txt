@@ -1,0 +1,1 @@
+Home screen widget showing random photos from your Nextcloud
