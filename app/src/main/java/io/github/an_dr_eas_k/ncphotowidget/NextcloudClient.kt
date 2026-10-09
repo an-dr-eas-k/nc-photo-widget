@@ -152,7 +152,11 @@ object LoginFlow {
             if (!response.isSuccessful) throw HttpException(response.code)
             val json = JSONObject(response.body!!.string())
             val poll = json.getJSONObject("poll")
-            return Session(json.getString("login"), poll.getString("endpoint"), poll.getString("token"))
+            // Poll on the host the user typed: the server may report an internal host name.
+            val base = serverUrl.toHttpUrl()
+            val pollUrl = poll.getString("endpoint").toHttpUrl().newBuilder()
+                .scheme(base.scheme).host(base.host).port(base.port).build()
+            return Session(json.getString("login"), pollUrl.toString(), poll.getString("token"))
         }
     }
 

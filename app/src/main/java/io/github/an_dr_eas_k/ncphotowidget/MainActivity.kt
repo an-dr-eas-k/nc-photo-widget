@@ -5,6 +5,8 @@ import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
@@ -30,8 +32,14 @@ class MainActivity : Activity() {
     private lateinit var refreshNow: Button
     private lateinit var status: TextView
 
-    @Volatile
-    private var polling = false
+    // Login in progress: polled only while this screen is visible, as the system may block the
+    // network of an app that sits in the background behind the browser.
+    private var pendingSession: LoginFlow.Session? = null
+    private var pendingServer = ""
+    private var pendingDeadline = 0L
+    private var pollInFlight = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val pollTask = Runnable { pollLogin() }
 
     private var configureWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
 
@@ -73,22 +81,40 @@ class MainActivity : Activity() {
         findViewById<Button>(R.id.add_folder).setOnClickListener { addFolder() }
         refreshNow.setOnClickListener { refreshPhotoList() }
         findViewById<Button>(R.id.save).setOnClickListener { save() }
+
+        savedInstanceState?.getString(STATE_LOGIN_TOKEN)?.let { token ->
+            pendingSession = LoginFlow.Session("", savedInstanceState.getString(STATE_LOGIN_POLL_URL, ""), token)
+            pendingServer = savedInstanceState.getString(STATE_LOGIN_SERVER, "")
+            pendingDeadline = savedInstanceState.getLong(STATE_LOGIN_DEADLINE)
+            status.setText(R.string.status_waiting)
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingSession?.let {
+            outState.putString(STATE_LOGIN_TOKEN, it.token)
+            outState.putString(STATE_LOGIN_POLL_URL, it.pollUrl)
+            outState.putString(STATE_LOGIN_SERVER, pendingServer)
+            outState.putLong(STATE_LOGIN_DEADLINE, pendingDeadline)
+        }
     }
 
     override fun onResume() {
         super.onResume()
         // The widget may have scanned in the background since this screen was last shown.
         showListStats()
+        if (pendingSession != null) pollLogin()
+    }
+
+    override fun onPause() {
+        handler.removeCallbacks(pollTask)
+        super.onPause()
     }
 
     private fun spinnerAdapter(labels: Int) =
         ArrayAdapter.createFromResource(this, labels, android.R.layout.simple_spinner_item)
             .also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
-
-    override fun onDestroy() {
-        polling = false
-        super.onDestroy()
-    }
 
     private fun setUpThemeSwitch() {
         val group = findViewById<RadioGroup>(R.id.theme_group)
@@ -123,28 +149,58 @@ class MainActivity : Activity() {
         }
         serverField.setText(server)
         status.setText(R.string.status_waiting)
-        polling = true
 
         Thread {
             try {
                 val session = LoginFlow.start(server)
-                runOnUiThread { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl))) }
-
-                val deadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
-                while (polling && System.currentTimeMillis() < deadline) {
-                    val result = LoginFlow.poll(session)
-                    if (result != null) {
-                        settings.serverUrl = result.server.trimEnd('/')
-                        settings.username = result.username
-                        settings.appPassword = result.appPassword
-                        runOnUiThread { showLoginStatus() }
-                        return@Thread
-                    }
-                    Thread.sleep(2000)
+                runOnUiThread {
+                    pendingSession = session
+                    pendingServer = server
+                    pendingDeadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl)))
                 }
-                runOnUiThread { showLoginStatus() }
             } catch (e: Exception) {
                 runOnUiThread { status.text = getString(R.string.status_failed, e.message ?: e.javaClass.simpleName) }
+            }
+        }.start()
+    }
+
+    private fun pollLogin() {
+        val session = pendingSession ?: return
+        if (System.currentTimeMillis() > pendingDeadline) {
+            pendingSession = null
+            showLoginStatus()
+            return
+        }
+        if (pollInFlight) return
+        pollInFlight = true
+
+        Thread {
+            val outcome = try {
+                LoginFlow.poll(session)
+            } catch (e: Exception) {
+                e
+            }
+            runOnUiThread {
+                pollInFlight = false
+                when (outcome) {
+                    is LoginFlow.Result -> {
+                        // Keep the address the user typed: the server-reported one may be an internal name.
+                        settings.serverUrl = pendingServer
+                        settings.username = outcome.username
+                        settings.appPassword = outcome.appPassword
+                        pendingSession = null
+                        showLoginStatus()
+                    }
+                    is Exception -> {
+                        status.text = getString(R.string.status_waiting_error, outcome.message ?: outcome.javaClass.simpleName)
+                        handler.postDelayed(pollTask, POLL_INTERVAL_MS)
+                    }
+                    else -> {
+                        status.setText(R.string.status_waiting)
+                        handler.postDelayed(pollTask, POLL_INTERVAL_MS)
+                    }
+                }
             }
         }.start()
     }
@@ -255,5 +311,10 @@ class MainActivity : Activity() {
 
     private companion object {
         const val LOGIN_TIMEOUT_MS = 10 * 60 * 1000L
+        const val POLL_INTERVAL_MS = 2000L
+        const val STATE_LOGIN_TOKEN = "login_token"
+        const val STATE_LOGIN_POLL_URL = "login_poll_url"
+        const val STATE_LOGIN_SERVER = "login_server"
+        const val STATE_LOGIN_DEADLINE = "login_deadline"
     }
 }
