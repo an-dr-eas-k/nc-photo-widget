@@ -17,9 +17,14 @@ class Settings(context: Context) {
         get() = prefs.getString("password", "") ?: ""
         set(v) = prefs.edit().putString("password", v).apply()
 
-    var folder: String
-        get() = prefs.getString("folder", "/") ?: "/"
-        set(v) = prefs.edit().putString("folder", v).apply()
+    var folders: List<String>
+        get() = (prefs.getString("folders", null) ?: prefs.getString("folder", null))
+            ?.split('\n')?.filter { it.isNotBlank() }.orEmpty().ifEmpty { listOf("/") }
+        set(v) = prefs.edit().putString("folders", v.joinToString("\n")).remove("folder").apply()
+
+    var listRefreshHours: Int
+        get() = prefs.getInt("list_refresh_hours", 24)
+        set(v) = prefs.edit().putInt("list_refresh_hours", v).apply()
 
     var intervalMinutes: Int
         get() = prefs.getInt("interval", 60)
@@ -38,6 +43,9 @@ class Settings(context: Context) {
         const val THEME_DARK = 2
 
         val INTERVALS_MINUTES = listOf(15, 30, 60, 180, 360, 720, 1440)
+
+        /** 0 means the photo list is only refreshed manually. */
+        val LIST_REFRESH_HOURS = listOf(1, 6, 12, 24, 168, 0)
 
         fun normalizeServerUrl(input: String): String {
             val t = input.trim().trimEnd('/')

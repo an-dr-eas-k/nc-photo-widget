@@ -45,11 +45,12 @@ class NextcloudClient(private val settings: Settings) {
             .map { Uri.decode(it.href.trimEnd('/').substringAfterLast('/')) }
             .sortedBy { it.lowercase() }
 
-    /** Walks [folder] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
-    fun listImageIds(folder: String): LongArray {
-        val ids = ArrayList<Long>()
+    /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
+    fun listImageIds(folders: List<String>): LongArray {
+        // A set, so overlapping folders do not count a photo twice.
+        val ids = LinkedHashSet<Long>()
         val queue = ArrayDeque<HttpUrl>()
-        queue.add(folderUrl(folder))
+        folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
             val url = queue.removeFirst()
             for (e in propfind(url)) {

@@ -32,7 +32,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
                 val id = if (action == ACTION_PREV) {
                     PhotoState.previous(ctx)
                 } else {
-                    PhotoState.next(ctx, PhotoState.ids(ctx, client, settings.folder))
+                    PhotoState.next(ctx, PhotoState.ids(ctx, client, settings.folders, settings.listRefreshHours))
                 }
                 if (id == null) {
                     WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
