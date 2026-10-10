@@ -27,12 +27,25 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         val action = inputData.getString(KEY_ACTION) ?: ACTION_NEXT
         val client = NextcloudClient(settings)
         val backup = PhotoState.backup(ctx)
+        var shownEarly = false
         try {
             repeat(3) {
                 val id = if (action == ACTION_PREV) {
                     PhotoState.previous(ctx)
                 } else {
-                    PhotoState.next(ctx, PhotoState.ids(ctx, client, settings.folder))
+                    val ids = PhotoState.ids(ctx, client, settings.folders, settings.listRefreshHours) { first ->
+                        // First scan: show a picture right away instead of waiting for the full list.
+                        try {
+                            WidgetUpdater.saveImage(ctx, client.fetchPreview(first))
+                            PhotoState.show(ctx, first)
+                            WidgetUpdater.update(ctx)
+                            shownEarly = true
+                        } catch (e: IOException) {
+                            // The scan continues; the regular pick below retries.
+                        }
+                    }
+                    if (shownEarly) return Result.success()
+                    PhotoState.next(ctx, ids)
                 }
                 if (id == null) {
                     WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
@@ -49,7 +62,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             }
         } catch (e: IOException) {
             // Keep showing the old picture; the next scheduled run tries again.
-            PhotoState.restore(ctx, backup)
+            if (!shownEarly) PhotoState.restore(ctx, backup)
         }
         return Result.success()
     }

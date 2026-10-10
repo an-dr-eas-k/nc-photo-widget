@@ -5,54 +5,39 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
+    <!-- Screen bar -->
     <path
         android:fillColor="#000000"
-        android:pathData="M54,18Q54,22 58,22Q54,22 54,26Q54,22 50,22Q54,22 54,18z" />
+        android:pathData="M36,26h40a2,2 0 0 1 0,4h-40a2,2 0 0 1 0,-4z" />
 
-    <group
-        android:pivotX="54"
-        android:pivotY="70"
-        android:rotation="-26">
-        <path
-            android:fillColor="#000000"
-            android:fillType="evenOdd"
-            android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5zM45,32v22h18v-22z" />
-    </group>
-
-    <group
-        android:pivotX="54"
-        android:pivotY="70"
-        android:rotation="26">
-        <path
-            android:fillColor="#000000"
-            android:fillType="evenOdd"
-            android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5zM45,32v22h18v-22z" />
-    </group>
-
+    <!-- Screen frame with panorama -->
     <path
         android:fillColor="#000000"
         android:fillType="evenOdd"
-        android:pathData="M45.5,30h17a2.5,2.5 0 0 1 2.5,2.5v27a2.5,2.5 0 0 1 -2.5,2.5h-17a2.5,2.5 0 0 1 -2.5,-2.5v-27a2.5,2.5 0 0 1 2.5,-2.5zM45,32v22h18v-22z" />
+        android:pathData="M36,30h40v32h-40zM38,32v28h36v-28z" />
+    <group>
+        <clip-path android:pathData="M38,32h36v28h-36z" />
+        <path
+            android:fillColor="#000000"
+            android:pathData="M36,51.3L48.7,37.1L57.8,44.2L66.9,33.6L76,42.4L76,62L36,62z" />
+    </group>
+
+    <!-- Light rays -->
+    <path
+        android:strokeColor="#000000"
+        android:strokeWidth="1"
+        android:strokeLineCap="round"
+        android:pathData="M31,57L36,30M53,73L76,62" />
+
+    <!-- Slide with window -->
     <path
         android:fillColor="#000000"
-        android:pathData="M45,54L54,37L63,54z" />
-
-    <group
-        android:pivotX="54"
-        android:pivotY="80"
-        android:scaleX="0.78"
-        android:scaleY="0.78">
-        <path
-            android:fillColor="#000000"
-            android:pathData="M36,64h38a8,8 0 0 1 0,16h-38a8,8 0 0 1 0,-16z" />
-        <path
-            android:fillColor="#000000"
-            android:pathData="M37,63a9,9 0 1 0 18,0a9,9 0 1 0 -18,0z" />
-        <path
-            android:fillColor="#000000"
-            android:pathData="M48,58a12,12 0 1 0 24,0a12,12 0 1 0 -24,0z" />
-        <path
-            android:fillColor="#000000"
-            android:pathData="M64,65a8,8 0 1 0 16,0a8,8 0 1 0 -16,0z" />
-    </group>
+        android:fillType="evenOdd"
+        android:pathData="M32,52h20a4,4 0 0 1 4,4v18a4,4 0 0 1 -4,4h-20a4,4 0 0 1 -4,-4v-18a4,4 0 0 1 4,-4zM31,57v16h22v-16z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M33.3,61a2.2,2.2 0 1 0 4.4,0a2.2,2.2 0 1 0 -4.4,0z" />
+    <path
+        android:fillColor="#000000"
+        android:pathData="M31,71.2L38,62.3L43,65.9L48,60.6L53,65V73h-22z" />
 </vector>

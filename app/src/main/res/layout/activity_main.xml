@@ -40,11 +40,17 @@
             android:layout_height="wrap_content"
             android:text="@string/label_folder" />
 
-        <Button
-            android:id="@+id/folder"
+        <LinearLayout
+            android:id="@+id/folders"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textAllCaps="false" />
+            android:orientation="vertical" />
+
+        <Button
+            android:id="@+id/add_folder"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/button_add_folder" />
 
         <TextView
             android:layout_width="wrap_content"
@@ -56,6 +62,29 @@
             android:id="@+id/interval"
             android:layout_width="match_parent"
             android:layout_height="wrap_content" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="16dp"
+            android:text="@string/label_list_refresh" />
+
+        <Spinner
+            android:id="@+id/list_refresh"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content" />
+
+        <TextView
+            android:id="@+id/list_stats"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:paddingTop="8dp" />
+
+        <Button
+            android:id="@+id/refresh_now"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/button_refresh_now" />
 
         <Button
             android:id="@+id/save"

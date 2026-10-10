@@ -3,7 +3,7 @@
     <string name="app_name">Nextcloud Photo Widget</string>
     <string name="widget_description">Random photo from your Nextcloud</string>
     <string name="widget_setup">Open the Nextcloud Photo Widget app to set up</string>
-    <string name="widget_empty">No photos found in the selected folder</string>
+    <string name="widget_empty">No photos found in the selected folders</string>
 
     <string name="label_server">Nextcloud server</string>
     <string name="hint_server">https://cloud.example.com</string>
@@ -11,9 +11,19 @@
     <string name="status_logged_out">Not logged in</string>
     <string name="status_logged_in">Logged in as %1$s</string>
     <string name="status_waiting">Waiting for login in the browser…</string>
+    <string name="status_waiting_error">Waiting for login… (%1$s)</string>
     <string name="status_failed">Login failed: %1$s</string>
 
-    <string name="label_folder">Photo folder (includes subfolders)</string>
+    <string name="label_folder">Photo folders (subfolders included)</string>
+    <string name="button_add_folder">Add folder</string>
+    <string name="button_remove">Remove</string>
+    <string name="error_no_folder">Add at least one folder</string>
+    <string name="label_list_refresh">Refresh the photo list</string>
+    <string name="button_refresh_now">Refresh photo list now</string>
+    <string name="stats_none">Photo list not synced yet</string>
+    <string name="stats_scanning">Scanning folders…</string>
+    <string name="stats_format">Photos: %1$d\nLast sync: %2$s\nSync took: %3$s</string>
+    <string name="stats_refresh_failed">Refresh failed: %1$s</string>
     <string name="folder_select">Select this folder</string>
     <string name="folder_up">.. (up)</string>
     <string name="error_list_failed">Could not load folders: %1$s</string>
@@ -36,5 +46,14 @@
         <item>6 hours</item>
         <item>12 hours</item>
         <item>24 hours</item>
+    </string-array>
+
+    <string-array name="list_refresh_labels">
+        <item>Every hour</item>
+        <item>Every 6 hours</item>
+        <item>Every 12 hours</item>
+        <item>Every day</item>
+        <item>Every week</item>
+        <item>Only manually</item>
     </string-array>
 </resources>

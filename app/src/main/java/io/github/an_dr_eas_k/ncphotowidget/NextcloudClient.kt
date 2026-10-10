@@ -45,11 +45,13 @@ class NextcloudClient(private val settings: Settings) {
             .map { Uri.decode(it.href.trimEnd('/').substringAfterLast('/')) }
             .sortedBy { it.lowercase() }
 
-    /** Walks [folder] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
-    fun listImageIds(folder: String): LongArray {
-        val ids = ArrayList<Long>()
+    /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
+    fun listImageIds(folders: List<String>, onFirstImage: ((Long) -> Unit)? = null): LongArray {
+        // A set, so overlapping folders do not count a photo twice.
+        val ids = LinkedHashSet<Long>()
+        var notified = false
         val queue = ArrayDeque<HttpUrl>()
-        queue.add(folderUrl(folder))
+        folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
             val url = queue.removeFirst()
             for (e in propfind(url)) {
@@ -57,9 +59,15 @@ class NextcloudClient(private val settings: Settings) {
                     url.resolve(e.href)?.let { queue.add(it) }
                 } else if (e.contentType.startsWith("image/") && e.fileId > 0) {
                     ids.add(e.fileId)
+                    if (!notified && ids.size >= EARLY_POOL) {
+                        notified = true
+                        onFirstImage?.invoke(ids.random())
+                    }
                 }
             }
         }
+        // Fewer photos than the pool size: pick from all of them.
+        if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
         return ids.toLongArray()
     }
 
@@ -128,6 +136,7 @@ class NextcloudClient(private val settings: Settings) {
     }
 
     private companion object {
+        const val EARLY_POOL = 50
         const val PROPFIND_BODY = """<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
   <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/></d:prop>
@@ -151,7 +160,11 @@ object LoginFlow {
             if (!response.isSuccessful) throw HttpException(response.code)
             val json = JSONObject(response.body!!.string())
             val poll = json.getJSONObject("poll")
-            return Session(json.getString("login"), poll.getString("endpoint"), poll.getString("token"))
+            // Poll on the host the user typed: the server may report an internal host name.
+            val base = serverUrl.toHttpUrl()
+            val pollUrl = poll.getString("endpoint").toHttpUrl().newBuilder()
+                .scheme(base.scheme).host(base.host).port(base.port).build()
+            return Session(json.getString("login"), pollUrl.toString(), poll.getString("token"))
         }
     }
 
