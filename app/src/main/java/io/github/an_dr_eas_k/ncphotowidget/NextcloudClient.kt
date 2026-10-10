@@ -46,9 +46,10 @@ class NextcloudClient(private val settings: Settings) {
             .sortedBy { it.lowercase() }
 
     /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
-    fun listImageIds(folders: List<String>): LongArray {
+    fun listImageIds(folders: List<String>, onFirstImage: ((Long) -> Unit)? = null): LongArray {
         // A set, so overlapping folders do not count a photo twice.
         val ids = LinkedHashSet<Long>()
+        var notified = false
         val queue = ArrayDeque<HttpUrl>()
         folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
@@ -58,9 +59,15 @@ class NextcloudClient(private val settings: Settings) {
                     url.resolve(e.href)?.let { queue.add(it) }
                 } else if (e.contentType.startsWith("image/") && e.fileId > 0) {
                     ids.add(e.fileId)
+                    if (!notified && ids.size >= EARLY_POOL) {
+                        notified = true
+                        onFirstImage?.invoke(ids.random())
+                    }
                 }
             }
         }
+        // Fewer photos than the pool size: pick from all of them.
+        if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
         return ids.toLongArray()
     }
 
@@ -129,6 +136,7 @@ class NextcloudClient(private val settings: Settings) {
     }
 
     private companion object {
+        const val EARLY_POOL = 50
         const val PROPFIND_BODY = """<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
   <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/></d:prop>

@@ -43,6 +43,14 @@ object PhotoState {
         return h[pos]
     }
 
+    /** Appends [id] to the history and makes it the current entry. */
+    fun show(c: Context, id: Long) {
+        val h = history(c)
+        h.add(id)
+        while (h.size > MAX_HISTORY) h.removeAt(0)
+        write(c, h, h.size - 1)
+    }
+
     fun previous(c: Context): Long? {
         val h = history(c)
         val pos = (prefs(c).getInt("pos", 0) - 1).coerceAtLeast(0)
@@ -69,15 +77,21 @@ object PhotoState {
         prefs(c).edit().clear().apply()
     }
 
-    /** Returns the cached id list, re-scanning the server when it is missing or older than [refreshHours]. */
-    fun ids(c: Context, client: NextcloudClient, folders: List<String>, refreshHours: Int): LongArray {
+    /**
+     * Returns the cached id list, re-scanning the server when it is missing or older than [refreshHours].
+     * [onFirstImage] is called during a scan only when there is no cached list yet.
+     */
+    fun ids(
+        c: Context, client: NextcloudClient, folders: List<String>, refreshHours: Int,
+        onFirstImage: ((Long) -> Unit)? = null,
+    ): LongArray {
         val cached = listFile(c).takeIf { it.exists() }
             ?.readLines()?.mapNotNull { it.toLongOrNull() }?.toLongArray() ?: LongArray(0)
         val age = System.currentTimeMillis() - prefs(c).getLong(KEY_LIST_TIME, 0)
         val stale = refreshHours > 0 && age >= refreshHours * HOUR_MS
         if (cached.isNotEmpty() && !stale) return cached
         return try {
-            refreshList(c, client, folders)
+            refreshList(c, client, folders, if (cached.isEmpty()) onFirstImage else null)
         } catch (e: IOException) {
             // An old list beats no list when the server is unreachable.
             if (cached.isEmpty()) throw e
@@ -86,9 +100,12 @@ object PhotoState {
     }
 
     /** Scans the folders now and records when it happened, how long it took and how many photos it found. */
-    fun refreshList(c: Context, client: NextcloudClient, folders: List<String>): LongArray {
+    fun refreshList(
+        c: Context, client: NextcloudClient, folders: List<String>,
+        onFirstImage: ((Long) -> Unit)? = null,
+    ): LongArray {
         val start = System.currentTimeMillis()
-        val fresh = client.listImageIds(folders)
+        val fresh = client.listImageIds(folders, onFirstImage)
         val end = System.currentTimeMillis()
         listFile(c).writeText(fresh.joinToString("\n"))
         prefs(c).edit()
