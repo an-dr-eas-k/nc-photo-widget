@@ -32,7 +32,9 @@ object WidgetUpdater {
         val ids = widgetIds(c)
         if (ids.isEmpty()) return
         val bitmap = if (hasImage(c)) BitmapFactory.decodeFile(imageFile(c).path) else null
-        val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(R.string.widget_setup) else null)
+        val settings = Settings(c)
+        val placeholder = if (settings.isConfigured && settings.folders.isNotEmpty()) R.string.widget_loading else R.string.widget_setup
+        val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(placeholder) else null)
         AppWidgetManager.getInstance(c).updateAppWidget(ids, views)
     }
 

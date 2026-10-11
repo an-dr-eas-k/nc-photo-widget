@@ -3,6 +3,7 @@
     <string name="app_name">Nextcloud Photo Widget</string>
     <string name="widget_description">Random photo from your Nextcloud</string>
     <string name="widget_setup">Tap here to set up</string>
+    <string name="widget_loading">Loading photos…\nTap to see the sync status</string>
     <string name="widget_empty">No photos found in the selected folders</string>
 
     <string name="label_server">Nextcloud server</string>
