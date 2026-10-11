@@ -13,6 +13,8 @@ import java.io.File
 
 object WidgetUpdater {
     private fun imageFile(c: Context) = File(c.filesDir, "current.jpg")
+    private fun bufferDir(c: Context) = File(c.filesDir, "buffer")
+    private fun bufferFile(c: Context, id: Long) = File(bufferDir(c).apply { mkdirs() }, "$id.jpg")
 
     private fun widgetIds(c: Context): IntArray =
         AppWidgetManager.getInstance(c).getAppWidgetIds(ComponentName(c, PhotoWidgetProvider::class.java))
@@ -21,19 +23,52 @@ object WidgetUpdater {
 
     fun hasImage(c: Context) = imageFile(c).exists()
 
-    fun saveImage(c: Context, bytes: ByteArray) {
-        val tmp = File(c.filesDir, "current.tmp")
+    fun saveImage(c: Context, bytes: ByteArray) = writeAtomically(imageFile(c), bytes)
+
+    fun isBuffered(c: Context, id: Long) = bufferFile(c, id).exists()
+
+    fun buffer(c: Context, id: Long, bytes: ByteArray) = writeAtomically(bufferFile(c, id), bytes)
+
+    /** Makes the buffered picture of [id] the current one; false when it is not buffered. */
+    fun showBuffered(c: Context, id: Long): Boolean {
+        val file = bufferFile(c, id)
+        if (!file.exists()) return false
+        saveImage(c, file.readBytes())
+        return true
+    }
+
+    fun trimBuffer(c: Context, keep: Set<Long>) {
+        bufferDir(c).listFiles()?.forEach {
+            val id = it.nameWithoutExtension.toLongOrNull()
+            if (id == null || id !in keep) it.delete()
+        }
+    }
+
+    private fun writeAtomically(target: File, bytes: ByteArray) {
+        val tmp = File(target.parentFile, "${target.name}.tmp")
         tmp.writeBytes(bytes)
-        tmp.renameTo(imageFile(c))
+        tmp.renameTo(target)
     }
 
     /** Redraws every widget from the stored image; a [message] is shown on top when given. */
-    fun update(c: Context, message: String? = null) {
+    fun update(c: Context, message: String? = null, loading: Boolean = false) {
         val ids = widgetIds(c)
         if (ids.isEmpty()) return
         val bitmap = if (hasImage(c)) BitmapFactory.decodeFile(imageFile(c).path) else null
-        val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(R.string.widget_setup) else null)
+        val settings = Settings(c)
+        val placeholder = if (settings.isConfigured && settings.folders.isNotEmpty()) R.string.widget_loading else R.string.widget_setup
+        val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(placeholder) else null)
+        views.setViewVisibility(R.id.loading, if (loading) View.VISIBLE else View.GONE)
         AppWidgetManager.getInstance(c).updateAppWidget(ids, views)
+    }
+
+    /** Shows the spinner without resending the picture, which would make the widget flicker. */
+    fun showLoading(c: Context) {
+        val ids = widgetIds(c)
+        if (ids.isEmpty()) return
+        val views = RemoteViews(c.packageName, R.layout.widget_photo)
+        views.setViewVisibility(R.id.loading, View.VISIBLE)
+        AppWidgetManager.getInstance(c).partiallyUpdateAppWidget(ids, views)
     }
 
     private fun buildViews(c: Context, bitmap: Bitmap?, message: String?): RemoteViews {

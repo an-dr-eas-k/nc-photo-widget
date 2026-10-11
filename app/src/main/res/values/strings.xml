@@ -3,6 +3,7 @@
     <string name="app_name">Nextcloud Photo Widget</string>
     <string name="widget_description">Random photo from your Nextcloud</string>
     <string name="widget_setup">Tap here to set up</string>
+    <string name="widget_loading">Loading photos…\nTap to see the sync status</string>
     <string name="widget_empty">No photos found in the selected folders</string>
 
     <string name="label_server">Nextcloud server</string>
@@ -22,8 +23,10 @@
     <string name="button_refresh_now">Refresh photo list now</string>
     <string name="stats_none">Photo list not synced yet</string>
     <string name="stats_scanning">Scanning folders…</string>
+    <string name="stats_scanning_progress">Scanning folders… %1$d folders, %2$d photos so far</string>
     <string name="stats_format">Photos: %1$d\nLast sync: %2$s\nSync took: %3$s</string>
-    <string name="stats_refresh_failed">Refresh failed: %1$s</string>
+    <string name="stats_error">Last sync failed: %1$s</string>
+    <string name="error_unsaved_folders">Save the folder changes first</string>
     <string name="folder_select">Select this folder</string>
     <string name="folder_up">.. (up)</string>
     <string name="error_list_failed">Could not load folders: %1$s</string>

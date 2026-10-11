@@ -46,13 +46,20 @@ class NextcloudClient(private val settings: Settings) {
             .sortedBy { it.lowercase() }
 
     /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
-    fun listImageIds(folders: List<String>, onFirstImage: ((Long) -> Unit)? = null): LongArray {
+    fun listImageIds(
+        folders: List<String>,
+        onFirstImage: ((Long) -> Unit)? = null,
+        onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
+        isStopped: () -> Boolean = { false },
+    ): LongArray {
         // A set, so overlapping folders do not count a photo twice.
         val ids = LinkedHashSet<Long>()
         var notified = false
+        var scanned = 0
         val queue = ArrayDeque<HttpUrl>()
         folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
+            if (isStopped()) throw IOException("Cancelled")
             val url = queue.removeFirst()
             for (e in propfind(url)) {
                 if (e.isDir) {
@@ -65,6 +72,7 @@ class NextcloudClient(private val settings: Settings) {
                     }
                 }
             }
+            onProgress?.invoke(++scanned, ids)
         }
         // Fewer photos than the pool size: pick from all of them.
         if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())

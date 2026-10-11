@@ -5,39 +5,28 @@
     android:viewportWidth="108"
     android:viewportHeight="108">
 
-    <!-- Screen bar -->
-    <path
-        android:fillColor="#000000"
-        android:pathData="M36,26h40a2,2 0 0 1 0,4h-40a2,2 0 0 1 0,-4z" />
-
-    <!-- Screen frame with panorama -->
+    <group android:translateY="10.8">
+    <!-- Tall phone body with a front camera and a full-height display -->
     <path
         android:fillColor="#000000"
         android:fillType="evenOdd"
-        android:pathData="M36,30h40v32h-40zM38,32v28h36v-28z" />
-    <group>
-        <clip-path android:pathData="M38,32h36v28h-36z" />
-        <path
-            android:fillColor="#000000"
-            android:pathData="M36,51.3L48.7,37.1L57.8,44.2L66.9,33.6L76,42.4L76,62L36,62z" />
-    </group>
+        android:pathData="M42.45,17.1h23.1a6.3,5.4 0 0 1 6.3,5.4v63a6.3,5.4 0 0 1 -6.3,5.4h-23.1a6.3,5.4 0 0 1 -6.3,-5.4v-63a6.3,5.4 0 0 1 6.3,-5.4z M41.925,19.575h24.15a4.2,3.6 0 0 1 4.2,3.6v61.65a4.2,3.6 0 0 1 -4.2,3.6h-24.15a4.2,3.6 0 0 1 -4.2,-3.6v-61.65a4.2,3.6 0 0 1 4.2,-3.6z M52.67,20.905a1.33,1.33 0 1 0 2.66,0a1.33,1.33 0 1 0 -2.66,0z" />
 
-    <!-- Light rays -->
     <path
+        android:fillColor="#000000"
         android:strokeColor="#000000"
-        android:strokeWidth="1"
-        android:strokeLineCap="round"
-        android:pathData="M31,57L36,30M53,73L76,62" />
+        android:strokeWidth="0.7"
+        android:pathData="M71.85,33.75h1.5a1,1.35 0 0 1 1,1.35v5.4a1,1.35 0 0 1 -1,1.35h-1.5z M71.85,46.8h1.5a1,0.9 0 0 1 1,0.9v2.7a1,0.9 0 0 1 -1,0.9h-1.5z" />
 
-    <!-- Slide with window -->
+    <!-- Slide: wider top/bottom borders, window cut out -->
     <path
         android:fillColor="#000000"
         android:fillType="evenOdd"
-        android:pathData="M32,52h20a4,4 0 0 1 4,4v18a4,4 0 0 1 -4,4h-20a4,4 0 0 1 -4,-4v-18a4,4 0 0 1 4,-4zM31,57v16h22v-16z" />
+        android:pathData="M43,32.292h22a2.2,2 0 0 1 2.2,2v22a2.2,2 0 0 1 -2.2,2h-22a2.2,2 0 0 1 -2.2,-2v-22a2.2,2 0 0 1 2.2,-2z M43,36.692v17.2h22v-17.2z" />
+
+    <!-- Mountains and sun inside the slide window -->
     <path
         android:fillColor="#000000"
-        android:pathData="M33.3,61a2.2,2.2 0 1 0 4.4,0a2.2,2.2 0 1 0 -4.4,0z" />
-    <path
-        android:fillColor="#000000"
-        android:pathData="M31,71.2L38,62.3L43,65.9L48,60.6L53,65V73h-22z" />
+        android:pathData="M43,53.892L50.7,43.381L55.1,48.636L58.95,44.336L65,53.892z M57.3,40.992a2.2,2.2 0 1 0 4.4,0a2.2,2.2 0 1 0 -4.4,0z" />
+    </group>
 </vector>

@@ -19,8 +19,16 @@ class PhotoWidgetProvider : AppWidgetProvider() {
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         when (intent.action) {
-            PhotoWorker.ACTION_NEXT, PhotoWorker.ACTION_PREV -> Scheduler.enqueue(context, intent.action!!)
+            PhotoWorker.ACTION_NEXT, PhotoWorker.ACTION_PREV -> {
+                // Immediate feedback; the worker clears it once the picture is shown.
+                WidgetUpdater.showLoading(context)
+                Scheduler.enqueue(context, intent.action!!)
+            }
             Scheduler.ACTION_TICK -> Scheduler.onTick(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                WidgetUpdater.update(context)
+                Scheduler.apply(context)
+            }
         }
     }
 

@@ -13,9 +13,10 @@ class OpenPhotoActivity : Activity() {
         super.onCreate(savedInstanceState)
         val fileId = PhotoState.current(this)
         val settings = Settings(this)
-        if (!settings.isConfigured) {
+        if (!settings.isConfigured || settings.folders.isEmpty() || fileId == null) {
+            // Nothing to open yet, so the tap leads to the settings with the sync status instead.
             startActivity(Intent(this, MainActivity::class.java))
-        } else if (fileId != null) {
+        } else {
             val uri = Uri.parse("${settings.serverUrl}/f/$fileId")
             try {
                 startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(NEXTCLOUD_PACKAGE))
