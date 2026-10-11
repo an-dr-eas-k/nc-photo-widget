@@ -2,7 +2,7 @@
 <resources>
     <string name="app_name">Nextcloud Photo Widget</string>
     <string name="widget_description">Random photo from your Nextcloud</string>
-    <string name="widget_setup">Open the Nextcloud Photo Widget app to set up</string>
+    <string name="widget_setup">Tap here to set up</string>
     <string name="widget_empty">No photos found in the selected folders</string>
 
     <string name="label_server">Nextcloud server</string>
@@ -36,7 +36,7 @@
     <string name="saved">Saved</string>
     <string name="error_not_logged_in">Log in first</string>
     <string name="error_bad_url">Enter a valid server address</string>
-    <string name="help_widget">Add the widget from the home screen widget picker. Tap the left edge for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app.</string>
+    <string name="help_widget">Tap the left edge of the widget for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app. To open these settings again, long-press the widget and tap its settings button.</string>
 
     <string-array name="interval_labels">
         <item>2 minutes</item>

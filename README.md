@@ -18,10 +18,10 @@ An Android home screen widget that shows a random picture from a folder on your 
 
 ## Usage
 
-1. Install the app and open it.
+1. Add the **Nextcloud Photo Widget** from the home screen widget picker. The app has no launcher icon; its settings open when you add the widget.
 2. Enter your server address and tap **Log in**; approve the login in the browser.
 3. Add one or more photo folders and choose the change interval, then tap **Save and apply**.
-4. Add the **Nextcloud Photo Widget** from the home screen widget picker.
+4. To change the settings later, long-press the widget and tap its settings button (Android 12 or newer).
 
 ## Building
 
