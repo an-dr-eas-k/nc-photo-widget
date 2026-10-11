@@ -15,9 +15,21 @@ android {
         versionName = "1.0"
     }
 
+    // Unset outside the maintainer's machine, so F-Droid builds an unsigned APK.
+    val releaseKeystore = System.getenv("NCPW_KEYSTORE")
+    if (releaseKeystore != null) {
+        signingConfigs.create("release") {
+            storeFile = file(releaseKeystore)
+            storePassword = System.getenv("NCPW_KEYSTORE_PASSWORD")
+            keyAlias = System.getenv("NCPW_KEY_ALIAS") ?: "ncphotowidget"
+            keyPassword = System.getenv("NCPW_KEY_PASSWORD") ?: System.getenv("NCPW_KEYSTORE_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
 
