@@ -36,7 +36,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         val showEarly: (Long) -> Unit = { first ->
             // Scanning: show a picture right away instead of waiting for the full list.
             try {
-                WidgetUpdater.saveImage(ctx, client.fetchPreview(first))
+                load(client, first)
                 PhotoState.show(ctx, first)
                 WidgetUpdater.update(ctx)
                 shownEarly = true
@@ -66,7 +66,10 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
                         )
                     }
                     forceRefresh = false
-                    if (shownEarly) return Result.success()
+                    if (shownEarly) {
+                        fillBuffer(client)
+                        return Result.success()
+                    }
                     PhotoState.next(ctx, ids)
                 }
                 if (id == null) {
@@ -74,8 +77,9 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
                     return Result.success()
                 }
                 try {
-                    WidgetUpdater.saveImage(ctx, client.fetchPreview(id))
+                    load(client, id)
                     WidgetUpdater.update(ctx)
+                    fillBuffer(client)
                     return Result.success()
                 } catch (e: HttpException) {
                     if (e.code != 404) throw e
@@ -87,6 +91,30 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             if (!shownEarly) PhotoState.restore(ctx, backup)
         }
         return Result.success()
+    }
+
+    /** Makes [id] the widget image, from the buffer when possible. */
+    private fun load(client: NextcloudClient, id: Long) {
+        val ctx = applicationContext
+        if (WidgetUpdater.showBuffered(ctx, id)) return
+        val bytes = client.fetchPreview(id)
+        WidgetUpdater.buffer(ctx, id, bytes)
+        WidgetUpdater.saveImage(ctx, bytes)
+    }
+
+    /** Keeps the pictures on both sides of the current one downloaded, so taps switch without waiting. */
+    private fun fillBuffer(client: NextcloudClient) {
+        val ctx = applicationContext
+        val (previous, current, next) = PhotoState.neighbors(ctx)
+        for (id in listOfNotNull(previous, next)) {
+            if (WidgetUpdater.isBuffered(ctx, id)) continue
+            try {
+                WidgetUpdater.buffer(ctx, id, client.fetchPreview(id))
+            } catch (e: Exception) {
+                // Not buffered: that tap downloads its picture instead.
+            }
+        }
+        WidgetUpdater.trimBuffer(ctx, setOfNotNull(previous, current, next))
     }
 
     companion object {

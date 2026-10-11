@@ -12,6 +12,7 @@ object PhotoState {
     private const val KEY_LIST_DURATION = "list_duration"
     private const val KEY_LIST_COUNT = "list_count"
     private const val KEY_LIST_ERROR = "list_error"
+    private const val KEY_PREFETCH = "prefetch"
 
     class Backup(val history: String, val pos: Int)
 
@@ -33,15 +34,42 @@ object PhotoState {
         if (pos < h.size - 1) {
             pos++
         } else {
-            if (ids.isEmpty()) return null
-            var id = ids.random()
-            repeat(5) { if (ids.size > 1 && id == h.lastOrNull()) id = ids.random() }
+            val id = prefetched(c)?.takeIf { it in ids && it != h.lastOrNull() } ?: pickRandom(c, ids) ?: return null
             h.add(id)
             while (h.size > MAX_HISTORY) h.removeAt(0)
             pos = h.size - 1
+            setPrefetched(c, null)
         }
         write(c, h, pos)
         return h[pos]
+    }
+
+    /** Previous, current and upcoming id; picks the upcoming one when the history ends here. */
+    fun neighbors(c: Context): Triple<Long?, Long?, Long?> {
+        val h = history(c)
+        val pos = prefs(c).getInt("pos", 0)
+        val current = h.getOrNull(pos)
+        val next = h.getOrNull(pos + 1) ?: run {
+            val ids = cachedIds(c)
+            prefetched(c)?.takeIf { it in ids && it != current } ?: pickRandom(c, ids)?.also { setPrefetched(c, it) }
+        }
+        return Triple(h.getOrNull(pos - 1), current, next)
+    }
+
+    /** A random id, avoiding the most recent one. */
+    fun pickRandom(c: Context, ids: LongArray): Long? {
+        if (ids.isEmpty()) return null
+        val last = history(c).lastOrNull()
+        var id = ids.random()
+        repeat(5) { if (ids.size > 1 && id == last) id = ids.random() }
+        return id
+    }
+
+    /** Id of the photo already chosen (and buffered) for the next tap, if any. */
+    fun prefetched(c: Context): Long? = prefs(c).getLong(KEY_PREFETCH, -1).takeIf { it >= 0 }
+
+    fun setPrefetched(c: Context, id: Long?) {
+        prefs(c).edit().apply { if (id == null) remove(KEY_PREFETCH) else putLong(KEY_PREFETCH, id) }.apply()
     }
 
     /** Appends [id] to the history and makes it the current entry. */
@@ -78,6 +106,9 @@ object PhotoState {
         prefs(c).edit().clear().apply()
     }
 
+    private fun cachedIds(c: Context): LongArray = listFile(c).takeIf { it.exists() }
+        ?.readLines()?.mapNotNull { it.toLongOrNull() }?.toLongArray() ?: LongArray(0)
+
     /**
      * Returns the cached id list, re-scanning the server when it is missing or older than [refreshHours].
      * [onFirstImage] is called during a scan only when there is no cached list yet.
@@ -88,8 +119,7 @@ object PhotoState {
         onProgress: ((Int, Int) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
     ): LongArray {
-        val cached = listFile(c).takeIf { it.exists() }
-            ?.readLines()?.mapNotNull { it.toLongOrNull() }?.toLongArray() ?: LongArray(0)
+        val cached = cachedIds(c)
         val age = System.currentTimeMillis() - prefs(c).getLong(KEY_LIST_TIME, 0)
         val stale = refreshHours > 0 && age >= refreshHours * HOUR_MS
         if (cached.isNotEmpty() && !stale) return cached
