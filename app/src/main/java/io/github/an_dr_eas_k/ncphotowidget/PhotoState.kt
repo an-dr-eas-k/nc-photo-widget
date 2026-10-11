@@ -6,7 +6,6 @@ import java.io.File
 
 /** Shared widget state: a cached list of image ids plus a back/forward history of shown ones. */
 object PhotoState {
-    private const val MAX_HISTORY = 30
     private const val HOUR_MS = 60L * 60 * 1000
     private const val PARTIAL_INTERVAL_MS = 2000L
     private const val KEY_LIST_TIME = "list_time"
@@ -22,76 +21,42 @@ object PhotoState {
     private fun prefs(c: Context) = c.getSharedPreferences("state", Context.MODE_PRIVATE)
     private fun listFile(c: Context) = File(c.filesDir, "ids.txt")
 
-    private fun history(c: Context): MutableList<Long> =
-        (prefs(c).getString("history", "") ?: "").split(',').mapNotNull { it.toLongOrNull() }.toMutableList()
-
-    private fun pos(c: Context) = prefs(c).getInt("pos", 0)
-
-    private fun write(c: Context, history: List<Long>, pos: Int) {
-        prefs(c).edit().putString("history", history.joinToString(",")).putInt("pos", pos).apply()
+    private fun load(c: Context): PhotoHistory {
+        val p = prefs(c)
+        return PhotoHistory(
+            (p.getString("history", "") ?: "").split(',').mapNotNull { it.toLongOrNull() },
+            p.getInt("pos", 0),
+            p.getLong(KEY_PREFETCH, -1).takeIf { it >= 0 },
+        )
     }
 
-    fun current(c: Context): Long? = history(c).getOrNull(pos(c))
-
-    fun next(c: Context, ids: LongArray): Long? {
-        val h = history(c)
-        val pos = pos(c)
-        if (pos < h.size - 1) {
-            write(c, h, pos + 1)
-            return h[pos + 1]
-        }
-        val id = upcoming(c, ids, h.lastOrNull()) ?: return null
-        show(c, id)
-        setPrefetched(c, null)
-        return id
+    private fun save(c: Context, h: PhotoHistory) {
+        val editor = prefs(c).edit().putString("history", h.ids.joinToString(",")).putInt("pos", h.pos)
+        val prefetched = h.prefetched
+        if (prefetched == null) editor.remove(KEY_PREFETCH) else editor.putLong(KEY_PREFETCH, prefetched)
+        editor.apply()
     }
 
-    /** Previous, current and upcoming id; picks the upcoming one when the history ends here. */
-    fun neighbors(c: Context): Triple<Long?, Long?, Long?> {
-        val h = history(c)
-        val pos = pos(c)
-        val current = h.getOrNull(pos)
-        val next = h.getOrNull(pos + 1) ?: upcoming(c, knownIds(c), current)?.also { setPrefetched(c, it) }
-        return Triple(h.getOrNull(pos - 1), current, next)
+    private fun <T> edit(c: Context, change: PhotoHistory.() -> T): T {
+        val h = load(c)
+        return h.change().also { save(c, h) }
     }
 
-    /** The photo already chosen (and buffered) for the next tap if still valid, else a random one avoiding [last]. */
-    private fun upcoming(c: Context, ids: LongArray, last: Long?): Long? {
-        prefs(c).getLong(KEY_PREFETCH, -1).takeIf { it in ids && it != last }?.let { return it }
-        if (ids.isEmpty()) return null
-        var id = ids.random()
-        repeat(5) { if (ids.size > 1 && id == last) id = ids.random() }
-        return id
-    }
+    fun current(c: Context): Long? = load(c).current
 
-    private fun setPrefetched(c: Context, id: Long?) {
-        prefs(c).edit().apply { if (id == null) remove(KEY_PREFETCH) else putLong(KEY_PREFETCH, id) }.apply()
-    }
+    fun next(c: Context, ids: LongArray): Long? = edit(c) { next(ids) }
 
-    /** Appends [id] to the history and makes it the current entry. */
-    fun show(c: Context, id: Long) {
-        val h = (history(c) + id).takeLast(MAX_HISTORY)
-        write(c, h, h.size - 1)
-    }
+    fun neighbors(c: Context): Triple<Long?, Long?, Long?> = edit(c) { neighbors(knownIds(c)) }
 
-    fun previous(c: Context): Long? {
-        val h = history(c)
-        val pos = (pos(c) - 1).coerceAtLeast(0)
-        write(c, h, pos)
-        return h.getOrNull(pos)
-    }
+    fun show(c: Context, id: Long) = edit(c) { show(id) }
 
-    /** Removes the current entry, e.g. when the file no longer exists on the server. */
-    fun dropCurrent(c: Context) {
-        val h = history(c)
-        val pos = pos(c)
-        if (pos in h.indices) h.removeAt(pos)
-        write(c, h, pos.coerceAtMost(h.size - 1).coerceAtLeast(0))
-    }
+    fun previous(c: Context): Long? = edit(c) { previous() }
 
-    fun backup(c: Context) = history(c) to pos(c)
+    fun dropCurrent(c: Context) = edit(c) { dropCurrent() }
 
-    fun restore(c: Context, backup: Pair<List<Long>, Int>) = write(c, backup.first, backup.second)
+    fun backup(c: Context) = load(c)
+
+    fun restore(c: Context, backup: PhotoHistory) = save(c, backup)
 
     fun reset(c: Context) {
         listFile(c).delete()
