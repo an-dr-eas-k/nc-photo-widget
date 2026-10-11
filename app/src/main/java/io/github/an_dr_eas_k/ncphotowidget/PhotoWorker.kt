@@ -107,7 +107,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
     private fun load(client: NextcloudClient, id: Long) {
         val ctx = applicationContext
         if (WidgetUpdater.showBuffered(ctx, id)) return
-        WidgetUpdater.update(ctx, loading = true)
+        WidgetUpdater.showLoading(ctx)
         val bytes = client.fetchPreview(id)
         WidgetUpdater.buffer(ctx, id, bytes)
         WidgetUpdater.saveImage(ctx, bytes)
@@ -143,6 +143,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
 object Scheduler {
     private const val PERIODIC = "cycle"
     const val ON_DEMAND = "on-demand"
+    private const val KEEP_ALIVE = "keep-alive"
 
     /** WorkManager cannot repeat faster than this, so shorter intervals use an alarm chain. */
     private const val MIN_PERIODIC_MINUTES = 15
@@ -151,6 +152,7 @@ object Scheduler {
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     fun enqueue(c: Context, action: String) {
+        keepAlive(c)
         val request = OneTimeWorkRequestBuilder<PhotoWorker>()
             .setConstraints(network)
             .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, action).build())
@@ -163,6 +165,15 @@ object Scheduler {
 
     fun usesAlarm(c: Context) = Settings(c).intervalMinutes < MIN_PERIODIC_MINUTES
 
+    // WorkManager toggles a manifest component whenever no work is pending; that package change
+    // makes the launcher rebuild the widget, which flickers. A job that never comes due prevents it.
+    private fun keepAlive(c: Context) {
+        val request = OneTimeWorkRequestBuilder<PhotoWorker>()
+            .setInitialDelay(3650, TimeUnit.DAYS)
+            .build()
+        WorkManager.getInstance(c).enqueueUniqueWork(KEEP_ALIVE, ExistingWorkPolicy.KEEP, request)
+    }
+
     /** Runs the cycle only while at least one widget exists. */
     fun apply(c: Context) {
         val wm = WorkManager.getInstance(c)
@@ -170,8 +181,10 @@ object Scheduler {
         cancelAlarm(c)
         if (!settings.isConfigured || !WidgetUpdater.hasWidgets(c)) {
             wm.cancelUniqueWork(PERIODIC)
+            wm.cancelUniqueWork(KEEP_ALIVE)
             return
         }
+        keepAlive(c)
         if (usesAlarm(c)) {
             wm.cancelUniqueWork(PERIODIC)
             scheduleAlarm(c, settings.intervalMinutes)

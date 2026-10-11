@@ -62,6 +62,15 @@ object WidgetUpdater {
         AppWidgetManager.getInstance(c).updateAppWidget(ids, views)
     }
 
+    /** Shows the spinner without resending the picture, which would make the widget flicker. */
+    fun showLoading(c: Context) {
+        val ids = widgetIds(c)
+        if (ids.isEmpty()) return
+        val views = RemoteViews(c.packageName, R.layout.widget_photo)
+        views.setViewVisibility(R.id.loading, View.VISIBLE)
+        AppWidgetManager.getInstance(c).partiallyUpdateAppWidget(ids, views)
+    }
+
     private fun buildViews(c: Context, bitmap: Bitmap?, message: String?): RemoteViews {
         val views = RemoteViews(c.packageName, R.layout.widget_photo)
         if (bitmap != null) views.setImageViewBitmap(R.id.image, bitmap)

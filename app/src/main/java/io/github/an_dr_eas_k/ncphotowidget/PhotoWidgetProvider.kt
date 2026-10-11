@@ -21,7 +21,7 @@ class PhotoWidgetProvider : AppWidgetProvider() {
         when (intent.action) {
             PhotoWorker.ACTION_NEXT, PhotoWorker.ACTION_PREV -> {
                 // Immediate feedback; the worker clears it once the picture is shown.
-                WidgetUpdater.update(context, loading = true)
+                WidgetUpdater.showLoading(context)
                 Scheduler.enqueue(context, intent.action!!)
             }
             Scheduler.ACTION_TICK -> Scheduler.onTick(context)
