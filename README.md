@@ -5,7 +5,7 @@ An Android home screen widget that shows a random picture from a folder on your 
 ## Features
 
 - Random photo from one or more Nextcloud folders (subfolders included)
-- Automatic change at a configurable interval (15 minutes to 24 hours)
+- Automatic change at a configurable interval (2 minutes to 24 hours)
 - Configurable refresh of the photo list (hourly to weekly, or manually), with the number of photos, last sync time and sync duration shown in the settings
 - Tap the left edge for the previous picture, the right edge for the next one, the center to open the picture in the Nextcloud app
 - Login via Nextcloud Login Flow v2: a revocable app password is stored, never your real password

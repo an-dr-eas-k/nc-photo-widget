@@ -42,7 +42,7 @@ class Settings(context: Context) {
         const val THEME_LIGHT = 1
         const val THEME_DARK = 2
 
-        val INTERVALS_MINUTES = listOf(15, 30, 60, 180, 360, 720, 1440)
+        val INTERVALS_MINUTES = listOf(2, 5, 10, 15, 30, 60, 180, 360, 720, 1440)
 
         /** 0 means the photo list is only refreshed manually. */
         val LIST_REFRESH_HOURS = listOf(1, 6, 12, 24, 168, 0)

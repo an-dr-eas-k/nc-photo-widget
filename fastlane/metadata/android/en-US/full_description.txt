@@ -3,7 +3,7 @@ Shows a random picture from a folder on your Nextcloud server as a home screen w
 <b>Features</b>
 <ul>
 <li>Random photo from one or more Nextcloud folders, subfolders included</li>
-<li>Picture changes automatically every 15 minutes to 24 hours</li>
+<li>Picture changes automatically every 2 minutes to 24 hours</li>
 <li>Configurable photo list refresh, with photo count, last sync time and sync duration</li>
 <li>Tap the left edge for the previous picture, the right edge for the next one</li>
 <li>Tap the center to open the picture in the official Nextcloud app</li>
