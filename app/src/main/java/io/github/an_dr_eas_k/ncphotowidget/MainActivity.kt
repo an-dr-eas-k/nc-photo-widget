@@ -90,7 +90,7 @@ class MainActivity : Activity() {
         intervalSpinner.setSelection(Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0))
         listRefreshSpinner.setSelection(Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0))
         showLoginStatus()
-        workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.ON_DEMAND)
+        workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.SCAN)
 
         findViewById<Button>(R.id.login).setOnClickListener { startLogin() }
         findViewById<Button>(R.id.add_folder).setOnClickListener { addFolder() }

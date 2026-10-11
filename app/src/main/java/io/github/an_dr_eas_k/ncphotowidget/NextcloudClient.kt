@@ -49,7 +49,7 @@ class NextcloudClient(private val settings: Settings) {
     fun listImageIds(
         folders: List<String>,
         onFirstImage: ((Long) -> Unit)? = null,
-        onProgress: ((folders: Int, photos: Int) -> Unit)? = null,
+        onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
     ): LongArray {
         // A set, so overlapping folders do not count a photo twice.
@@ -72,7 +72,7 @@ class NextcloudClient(private val settings: Settings) {
                     }
                 }
             }
-            onProgress?.invoke(++scanned, ids.size)
+            onProgress?.invoke(++scanned, ids)
         }
         // Fewer photos than the pool size: pick from all of them.
         if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())

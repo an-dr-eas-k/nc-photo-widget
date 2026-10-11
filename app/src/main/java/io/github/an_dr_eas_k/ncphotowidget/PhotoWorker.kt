@@ -32,43 +32,20 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
 
         val action = inputData.getString(KEY_ACTION) ?: ACTION_NEXT
         val client = NextcloudClient(settings)
+        if (action == ACTION_REFRESH) return scan(client, settings)
+
         val backup = PhotoState.backup(ctx)
-        var shownEarly = false
-        val showEarly: (Long) -> Unit = { first ->
-            // Scanning: show a picture right away instead of waiting for the full list.
-            try {
-                load(client, first)
-                PhotoState.show(ctx, first)
-                WidgetUpdater.update(ctx)
-                shownEarly = true
-            } catch (e: IOException) {
-                // The scan continues; the regular pick below retries.
-            }
-        }
-        var lastProgress = 0L
-        val onProgress: (Int, Int) -> Unit = { folders, photos ->
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastProgress >= PROGRESS_INTERVAL_MS) {
-                lastProgress = now
-                setProgressAsync(workDataOf(PROGRESS_FOLDERS to folders, PROGRESS_PHOTOS to photos))
-            }
-        }
-        var forceRefresh = action == ACTION_REFRESH
         try {
             repeat(3) {
                 val id = if (action == ACTION_PREV) {
                     PhotoState.previous(ctx)
                 } else {
-                    val ids = if (forceRefresh) {
-                        PhotoState.refreshList(ctx, client, settings.folders, showEarly, onProgress, { isStopped })
-                    } else {
-                        PhotoState.ids(
-                            ctx, client, settings.folders, settings.listRefreshHours, showEarly, onProgress, { isStopped },
-                        )
-                    }
-                    forceRefresh = false
-                    if (shownEarly) {
-                        fillBuffer(client)
+                    // Never wait for a scan here: it runs as its own job, and known photos are used meanwhile.
+                    if (PhotoState.needsRefresh(ctx, settings.listRefreshHours)) Scheduler.scan(ctx, restart = false)
+                    val ids = PhotoState.knownIds(ctx)
+                    if (ids.isEmpty()) {
+                        // Before the first photo is found, the scan itself puts it on the widget.
+                        if (PhotoState.hasScanned(ctx)) WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
                         return Result.success()
                     }
                     PhotoState.next(ctx, ids)
@@ -89,9 +66,48 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             }
         } catch (e: Exception) {
             // Keep showing the old picture; the next scheduled run tries again.
-            if (!shownEarly) PhotoState.restore(ctx, backup)
+            PhotoState.restore(ctx, backup)
         }
         WidgetUpdater.update(ctx, loading = moreQueued())
+        return Result.success()
+    }
+
+    /** Rescans the folders; shows a photo early only when there was no list to pick from. */
+    private fun scan(client: NextcloudClient, settings: Settings): Result {
+        val ctx = applicationContext
+        val wasEmpty = !PhotoState.hasList(ctx)
+        var shownEarly = false
+        val showEarly: (Long) -> Unit = { first ->
+            try {
+                load(client, first)
+                PhotoState.show(ctx, first)
+                WidgetUpdater.update(ctx)
+                shownEarly = true
+            } catch (e: IOException) {
+                // The scan continues; a later tap or tick retries.
+            }
+        }
+        var lastProgress = 0L
+        val onProgress: (Int, Int) -> Unit = { folders, photos ->
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastProgress >= PROGRESS_INTERVAL_MS) {
+                lastProgress = now
+                setProgressAsync(workDataOf(PROGRESS_FOLDERS to folders, PROGRESS_PHOTOS to photos))
+            }
+        }
+        try {
+            val ids = PhotoState.refreshList(
+                ctx, client, settings.folders, if (wasEmpty) showEarly else null, onProgress, { isStopped },
+            )
+            if (wasEmpty && !shownEarly) {
+                if (ids.isEmpty()) WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
+                else Scheduler.enqueue(ctx, ACTION_NEXT)
+            }
+            fillBuffer(client)
+        } catch (e: Exception) {
+            // Recorded for the settings screen; the previous list stays in use.
+            if (wasEmpty && !shownEarly) WidgetUpdater.update(ctx)
+        }
         return Result.success()
     }
 
@@ -132,7 +148,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         const val KEY_ACTION = "action"
         const val ACTION_NEXT = "io.github.an_dr_eas_k.ncphotowidget.NEXT"
         const val ACTION_PREV = "io.github.an_dr_eas_k.ncphotowidget.PREV"
-        /** Rescans the folders regardless of the list age, then shows a picture from the new list. */
+        /** Rescans the folders regardless of the list age. */
         const val ACTION_REFRESH = "io.github.an_dr_eas_k.ncphotowidget.REFRESH"
         const val PROGRESS_FOLDERS = "folders"
         const val PROGRESS_PHOTOS = "photos"
@@ -143,6 +159,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
 object Scheduler {
     private const val PERIODIC = "cycle"
     const val ON_DEMAND = "on-demand"
+    const val SCAN = "scan"
     private const val KEEP_ALIVE = "keep-alive"
 
     /** WorkManager cannot repeat faster than this, so shorter intervals use an alarm chain. */
@@ -152,15 +169,27 @@ object Scheduler {
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
     fun enqueue(c: Context, action: String) {
+        if (action == PhotoWorker.ACTION_REFRESH) return scan(c, restart = true)
         keepAlive(c)
         val request = OneTimeWorkRequestBuilder<PhotoWorker>()
             .setConstraints(network)
             .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, action).build())
             .addTag(action)
             .build()
-        // A rescan supersedes queued taps and stops a scan of folders that may no longer be selected.
-        val policy = if (action == PhotoWorker.ACTION_REFRESH) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.APPEND_OR_REPLACE
-        WorkManager.getInstance(c).enqueueUniqueWork(ON_DEMAND, policy, request)
+        WorkManager.getInstance(c).enqueueUniqueWork(ON_DEMAND, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+    }
+
+    /** Scans run apart from taps, so a long scan never holds up the next picture. */
+    fun scan(c: Context, restart: Boolean) {
+        keepAlive(c)
+        val request = OneTimeWorkRequestBuilder<PhotoWorker>()
+            .setConstraints(network)
+            .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, PhotoWorker.ACTION_REFRESH).build())
+            .addTag(PhotoWorker.ACTION_REFRESH)
+            .build()
+        // Restarting also stops a scan of folders that may no longer be selected.
+        val policy = if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
+        WorkManager.getInstance(c).enqueueUniqueWork(SCAN, policy, request)
     }
 
     fun usesAlarm(c: Context) = Settings(c).intervalMinutes < MIN_PERIODIC_MINUTES

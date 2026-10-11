@@ -1,13 +1,14 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
 import android.content.Context
+import android.os.SystemClock
 import java.io.File
-import java.io.IOException
 
 /** Shared widget state: a cached list of image ids plus a back/forward history of shown ones. */
 object PhotoState {
     private const val MAX_HISTORY = 30
     private const val HOUR_MS = 60L * 60 * 1000
+    private const val PARTIAL_INTERVAL_MS = 2000L
     private const val KEY_LIST_TIME = "list_time"
     private const val KEY_LIST_DURATION = "list_duration"
     private const val KEY_LIST_COUNT = "list_count"
@@ -15,6 +16,10 @@ object PhotoState {
     private const val KEY_PREFETCH = "prefetch"
 
     class Backup(val history: String, val pos: Int)
+
+    /** Photos found so far by a running scan, usable before the scan has finished. */
+    @Volatile
+    private var partial: LongArray? = null
 
     private fun prefs(c: Context) = c.getSharedPreferences("state", Context.MODE_PRIVATE)
     private fun listFile(c: Context) = File(c.filesDir, "ids.txt")
@@ -50,7 +55,7 @@ object PhotoState {
         val pos = prefs(c).getInt("pos", 0)
         val current = h.getOrNull(pos)
         val next = h.getOrNull(pos + 1) ?: run {
-            val ids = cachedIds(c)
+            val ids = knownIds(c)
             prefetched(c)?.takeIf { it in ids && it != current } ?: pickRandom(c, ids)?.also { setPrefetched(c, it) }
         }
         return Triple(h.getOrNull(pos - 1), current, next)
@@ -109,27 +114,18 @@ object PhotoState {
     private fun cachedIds(c: Context): LongArray = listFile(c).takeIf { it.exists() }
         ?.readLines()?.mapNotNull { it.toLongOrNull() }?.toLongArray() ?: LongArray(0)
 
-    /**
-     * Returns the cached id list, re-scanning the server when it is missing or older than [refreshHours].
-     * [onFirstImage] is called during a scan only when there is no cached list yet.
-     */
-    fun ids(
-        c: Context, client: NextcloudClient, folders: List<String>, refreshHours: Int,
-        onFirstImage: ((Long) -> Unit)? = null,
-        onProgress: ((Int, Int) -> Unit)? = null,
-        isStopped: () -> Boolean = { false },
-    ): LongArray {
-        val cached = cachedIds(c)
+    fun hasList(c: Context) = cachedIds(c).isNotEmpty()
+
+    /** The last complete list, or what a running first scan has found so far. */
+    fun knownIds(c: Context): LongArray = cachedIds(c).takeIf { it.isNotEmpty() } ?: partial ?: LongArray(0)
+
+    fun hasScanned(c: Context) = prefs(c).contains(KEY_LIST_TIME)
+
+    /** True when the list was never scanned or is older than [refreshHours] (0 = manual only). */
+    fun needsRefresh(c: Context, refreshHours: Int): Boolean {
+        if (!hasScanned(c)) return true
         val age = System.currentTimeMillis() - prefs(c).getLong(KEY_LIST_TIME, 0)
-        val stale = refreshHours > 0 && age >= refreshHours * HOUR_MS
-        if (cached.isNotEmpty() && !stale) return cached
-        return try {
-            refreshList(c, client, folders, if (cached.isEmpty()) onFirstImage else null, onProgress, isStopped)
-        } catch (e: IOException) {
-            // An old list beats no list when the server is unreachable.
-            if (cached.isEmpty()) throw e
-            cached
-        }
+        return refreshHours > 0 && age >= refreshHours * HOUR_MS
     }
 
     /** Scans the folders now and records when it happened, how long it took and how many photos it found. */
@@ -140,15 +136,28 @@ object PhotoState {
         isStopped: () -> Boolean = { false },
     ): LongArray {
         val start = System.currentTimeMillis()
+        var lastPartial = 0L
         val fresh = try {
-            client.listImageIds(folders, onFirstImage, onProgress, isStopped)
+            client.listImageIds(folders, onFirstImage, { scanned, ids ->
+                val now = SystemClock.elapsedRealtime()
+                if (now - lastPartial >= PARTIAL_INTERVAL_MS) {
+                    lastPartial = now
+                    partial = ids.toLongArray()
+                }
+                onProgress?.invoke(scanned, ids.size)
+            }, isStopped)
         } catch (e: Exception) {
             // Kept so the settings screen can explain why the widget stays empty.
             if (!isStopped()) prefs(c).edit().putString(KEY_LIST_ERROR, e.message ?: e.javaClass.simpleName).apply()
             throw e
+        } finally {
+            partial = null
         }
         val end = System.currentTimeMillis()
-        listFile(c).writeText(fresh.joinToString("\n"))
+        // Written atomically: taps may read the list while it is replaced.
+        val tmp = File(c.filesDir, "ids.tmp")
+        tmp.writeText(fresh.joinToString("\n"))
+        tmp.renameTo(listFile(c))
         prefs(c).edit()
             .putLong(KEY_LIST_TIME, end)
             .putLong(KEY_LIST_DURATION, end - start)
