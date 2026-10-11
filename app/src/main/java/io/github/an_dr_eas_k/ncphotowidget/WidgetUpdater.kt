@@ -51,13 +51,14 @@ object WidgetUpdater {
     }
 
     /** Redraws every widget from the stored image; a [message] is shown on top when given. */
-    fun update(c: Context, message: String? = null) {
+    fun update(c: Context, message: String? = null, loading: Boolean = false) {
         val ids = widgetIds(c)
         if (ids.isEmpty()) return
         val bitmap = if (hasImage(c)) BitmapFactory.decodeFile(imageFile(c).path) else null
         val settings = Settings(c)
         val placeholder = if (settings.isConfigured && settings.folders.isNotEmpty()) R.string.widget_loading else R.string.widget_setup
         val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(placeholder) else null)
+        views.setViewVisibility(R.id.loading, if (loading) View.VISIBLE else View.GONE)
         AppWidgetManager.getInstance(c).updateAppWidget(ids, views)
     }
 

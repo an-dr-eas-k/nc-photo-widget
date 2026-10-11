@@ -11,6 +11,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.Worker
 import androidx.work.WorkerParameters
@@ -78,7 +79,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
                 }
                 try {
                     load(client, id)
-                    WidgetUpdater.update(ctx)
+                    WidgetUpdater.update(ctx, loading = moreQueued())
                     fillBuffer(client)
                     return Result.success()
                 } catch (e: HttpException) {
@@ -90,13 +91,23 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             // Keep showing the old picture; the next scheduled run tries again.
             if (!shownEarly) PhotoState.restore(ctx, backup)
         }
+        WidgetUpdater.update(ctx, loading = moreQueued())
         return Result.success()
+    }
+
+    /** Further taps are waiting behind this run, so the widget should keep showing that it is busy. */
+    private fun moreQueued(): Boolean = try {
+        WorkManager.getInstance(applicationContext).getWorkInfosForUniqueWork(Scheduler.ON_DEMAND).get()
+            .any { it.id != id && (it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED) }
+    } catch (e: Exception) {
+        false
     }
 
     /** Makes [id] the widget image, from the buffer when possible. */
     private fun load(client: NextcloudClient, id: Long) {
         val ctx = applicationContext
         if (WidgetUpdater.showBuffered(ctx, id)) return
+        WidgetUpdater.update(ctx, loading = true)
         val bytes = client.fetchPreview(id)
         WidgetUpdater.buffer(ctx, id, bytes)
         WidgetUpdater.saveImage(ctx, bytes)
