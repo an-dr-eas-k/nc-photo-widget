@@ -56,6 +56,10 @@ class MainActivity : Activity() {
             Settings.THEME_DARK -> setTheme(R.style.Theme_NC_Dark)
         }
         super.onCreate(savedInstanceState)
+        actionBar?.apply {
+            setDisplayShowHomeEnabled(true)
+            setIcon(R.mipmap.ic_launcher)
+        }
         setContentView(R.layout.activity_main)
         setUpThemeSwitch()
 
