@@ -52,6 +52,9 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         settings = Settings(this)
+        // A force stop cancels the widget's tap handlers and alarms; opening the settings restores them.
+        WidgetUpdater.update(this)
+        Scheduler.apply(this)
         // Launched from the widget's setup/reconfigure button; must answer with the widget id.
         if (intent.action == AppWidgetManager.ACTION_APPWIDGET_CONFIGURE) {
             configureWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)

@@ -25,6 +25,10 @@ class PhotoWidgetProvider : AppWidgetProvider() {
                 Scheduler.enqueue(context, intent.action!!)
             }
             Scheduler.ACTION_TICK -> Scheduler.onTick(context)
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                WidgetUpdater.update(context)
+                Scheduler.apply(context)
+            }
         }
     }
 
