@@ -15,8 +15,6 @@ object PhotoState {
     private const val KEY_LIST_ERROR = "list_error"
     private const val KEY_PREFETCH = "prefetch"
 
-    class Backup(val history: String, val pos: Int)
-
     /** Photos found so far by a running scan, usable before the scan has finished. */
     @Volatile
     private var partial: LongArray? = null
@@ -27,67 +25,58 @@ object PhotoState {
     private fun history(c: Context): MutableList<Long> =
         (prefs(c).getString("history", "") ?: "").split(',').mapNotNull { it.toLongOrNull() }.toMutableList()
 
+    private fun pos(c: Context) = prefs(c).getInt("pos", 0)
+
     private fun write(c: Context, history: List<Long>, pos: Int) {
         prefs(c).edit().putString("history", history.joinToString(",")).putInt("pos", pos).apply()
     }
 
-    fun current(c: Context): Long? = history(c).getOrNull(prefs(c).getInt("pos", 0))
+    fun current(c: Context): Long? = history(c).getOrNull(pos(c))
 
     fun next(c: Context, ids: LongArray): Long? {
         val h = history(c)
-        var pos = prefs(c).getInt("pos", 0)
+        val pos = pos(c)
         if (pos < h.size - 1) {
-            pos++
-        } else {
-            val id = prefetched(c)?.takeIf { it in ids && it != h.lastOrNull() } ?: pickRandom(c, ids) ?: return null
-            h.add(id)
-            while (h.size > MAX_HISTORY) h.removeAt(0)
-            pos = h.size - 1
-            setPrefetched(c, null)
+            write(c, h, pos + 1)
+            return h[pos + 1]
         }
-        write(c, h, pos)
-        return h[pos]
+        val id = upcoming(c, ids, h.lastOrNull()) ?: return null
+        show(c, id)
+        setPrefetched(c, null)
+        return id
     }
 
     /** Previous, current and upcoming id; picks the upcoming one when the history ends here. */
     fun neighbors(c: Context): Triple<Long?, Long?, Long?> {
         val h = history(c)
-        val pos = prefs(c).getInt("pos", 0)
+        val pos = pos(c)
         val current = h.getOrNull(pos)
-        val next = h.getOrNull(pos + 1) ?: run {
-            val ids = knownIds(c)
-            prefetched(c)?.takeIf { it in ids && it != current } ?: pickRandom(c, ids)?.also { setPrefetched(c, it) }
-        }
+        val next = h.getOrNull(pos + 1) ?: upcoming(c, knownIds(c), current)?.also { setPrefetched(c, it) }
         return Triple(h.getOrNull(pos - 1), current, next)
     }
 
-    /** A random id, avoiding the most recent one. */
-    fun pickRandom(c: Context, ids: LongArray): Long? {
+    /** The photo already chosen (and buffered) for the next tap if still valid, else a random one avoiding [last]. */
+    private fun upcoming(c: Context, ids: LongArray, last: Long?): Long? {
+        prefs(c).getLong(KEY_PREFETCH, -1).takeIf { it in ids && it != last }?.let { return it }
         if (ids.isEmpty()) return null
-        val last = history(c).lastOrNull()
         var id = ids.random()
         repeat(5) { if (ids.size > 1 && id == last) id = ids.random() }
         return id
     }
 
-    /** Id of the photo already chosen (and buffered) for the next tap, if any. */
-    fun prefetched(c: Context): Long? = prefs(c).getLong(KEY_PREFETCH, -1).takeIf { it >= 0 }
-
-    fun setPrefetched(c: Context, id: Long?) {
+    private fun setPrefetched(c: Context, id: Long?) {
         prefs(c).edit().apply { if (id == null) remove(KEY_PREFETCH) else putLong(KEY_PREFETCH, id) }.apply()
     }
 
     /** Appends [id] to the history and makes it the current entry. */
     fun show(c: Context, id: Long) {
-        val h = history(c)
-        h.add(id)
-        while (h.size > MAX_HISTORY) h.removeAt(0)
+        val h = (history(c) + id).takeLast(MAX_HISTORY)
         write(c, h, h.size - 1)
     }
 
     fun previous(c: Context): Long? {
         val h = history(c)
-        val pos = (prefs(c).getInt("pos", 0) - 1).coerceAtLeast(0)
+        val pos = (pos(c) - 1).coerceAtLeast(0)
         write(c, h, pos)
         return h.getOrNull(pos)
     }
@@ -95,16 +84,14 @@ object PhotoState {
     /** Removes the current entry, e.g. when the file no longer exists on the server. */
     fun dropCurrent(c: Context) {
         val h = history(c)
-        val pos = prefs(c).getInt("pos", 0)
+        val pos = pos(c)
         if (pos in h.indices) h.removeAt(pos)
         write(c, h, pos.coerceAtMost(h.size - 1).coerceAtLeast(0))
     }
 
-    fun backup(c: Context) = Backup(prefs(c).getString("history", "") ?: "", prefs(c).getInt("pos", 0))
+    fun backup(c: Context) = history(c) to pos(c)
 
-    fun restore(c: Context, b: Backup) {
-        prefs(c).edit().putString("history", b.history).putInt("pos", b.pos).apply()
-    }
+    fun restore(c: Context, backup: Pair<List<Long>, Int>) = write(c, backup.first, backup.second)
 
     fun reset(c: Context) {
         listFile(c).delete()
@@ -148,7 +135,7 @@ object PhotoState {
             }, isStopped)
         } catch (e: Exception) {
             // Kept so the settings screen can explain why the widget stays empty.
-            if (!isStopped()) prefs(c).edit().putString(KEY_LIST_ERROR, e.message ?: e.javaClass.simpleName).apply()
+            if (!isStopped()) prefs(c).edit().putString(KEY_LIST_ERROR, e.describe()).apply()
             throw e
         } finally {
             partial = null

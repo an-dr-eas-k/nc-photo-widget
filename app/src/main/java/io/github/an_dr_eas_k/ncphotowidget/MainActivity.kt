@@ -159,26 +159,18 @@ class MainActivity : Activity() {
 
     private fun startLogin() {
         val server = Settings.normalizeServerUrl(serverField.text.toString())
-        if (!server.startsWith("https://")) {
-            Toast.makeText(this, R.string.error_bad_url, Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (!server.startsWith("https://")) return toast(R.string.error_bad_url)
         serverField.setText(server)
         status.setText(R.string.status_waiting)
 
-        Thread {
-            try {
-                val session = LoginFlow.start(server)
-                runOnUiThread {
-                    pendingSession = session
-                    pendingServer = server
-                    pendingDeadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
-                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl)))
-                }
-            } catch (e: Exception) {
-                runOnUiThread { status.text = getString(R.string.status_failed, e.message ?: e.javaClass.simpleName) }
-            }
-        }.start()
+        inBackground({ LoginFlow.start(server) }) { result ->
+            result.onSuccess { session ->
+                pendingSession = session
+                pendingServer = server
+                pendingDeadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+                startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl)))
+            }.onFailure { status.text = getString(R.string.status_failed, it.describe()) }
+        }
     }
 
     private fun pollLogin() {
@@ -191,34 +183,22 @@ class MainActivity : Activity() {
         if (pollInFlight) return
         pollInFlight = true
 
-        Thread {
-            val outcome = try {
-                LoginFlow.poll(session)
-            } catch (e: Exception) {
-                e
+        inBackground({ LoginFlow.poll(session) }) { result ->
+            pollInFlight = false
+            val login = result.getOrNull()
+            if (login != null) {
+                // Keep the address the user typed: the server-reported one may be an internal name.
+                settings.serverUrl = pendingServer
+                settings.username = login.username
+                settings.appPassword = login.appPassword
+                pendingSession = null
+                showLoginStatus()
+            } else {
+                status.text = result.exceptionOrNull()?.let { getString(R.string.status_waiting_error, it.describe()) }
+                    ?: getString(R.string.status_waiting)
+                handler.postDelayed(pollTask, POLL_INTERVAL_MS)
             }
-            runOnUiThread {
-                pollInFlight = false
-                when (outcome) {
-                    is LoginFlow.Result -> {
-                        // Keep the address the user typed: the server-reported one may be an internal name.
-                        settings.serverUrl = pendingServer
-                        settings.username = outcome.username
-                        settings.appPassword = outcome.appPassword
-                        pendingSession = null
-                        showLoginStatus()
-                    }
-                    is Exception -> {
-                        status.text = getString(R.string.status_waiting_error, outcome.message ?: outcome.javaClass.simpleName)
-                        handler.postDelayed(pollTask, POLL_INTERVAL_MS)
-                    }
-                    else -> {
-                        status.setText(R.string.status_waiting)
-                        handler.postDelayed(pollTask, POLL_INTERVAL_MS)
-                    }
-                }
-            }
-        }.start()
+        }
     }
 
     private fun renderFolders() {
@@ -244,10 +224,7 @@ class MainActivity : Activity() {
     }
 
     private fun addFolder() {
-        if (!settings.isConfigured) {
-            Toast.makeText(this, R.string.error_not_logged_in, Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
         FolderPicker(this, NextcloudClient(settings), "/") {
             if (it !in folders) folders.add(it)
             renderFolders()
@@ -290,32 +267,21 @@ class MainActivity : Activity() {
     private fun formatDuration(ms: Long) =
         if (ms < 1000) "$ms ms" else String.format(Locale.getDefault(), "%.1f s", ms / 1000.0)
 
+    private fun toast(message: Int) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+
     /** Rescans the saved folders now, so changes on the server show up without waiting for the schedule. */
     private fun refreshPhotoList() {
-        if (!settings.isConfigured) {
-            Toast.makeText(this, R.string.error_not_logged_in, Toast.LENGTH_SHORT).show()
-            return
+        when {
+            !settings.isConfigured -> toast(R.string.error_not_logged_in)
+            folders != settings.folders -> toast(R.string.error_unsaved_folders)
+            folders.isEmpty() -> toast(R.string.error_no_folder)
+            else -> Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
         }
-        if (folders != settings.folders) {
-            Toast.makeText(this, R.string.error_unsaved_folders, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (folders.isEmpty()) {
-            Toast.makeText(this, R.string.error_no_folder, Toast.LENGTH_SHORT).show()
-            return
-        }
-        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
     }
 
     private fun save() {
-        if (!settings.isConfigured) {
-            Toast.makeText(this, R.string.error_not_logged_in, Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (folders.isEmpty()) {
-            Toast.makeText(this, R.string.error_no_folder, Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
+        if (folders.isEmpty()) return toast(R.string.error_no_folder)
         val foldersChanged = folders != settings.folders
         settings.folders = folders.toList()
         settings.intervalMinutes = Settings.INTERVALS_MINUTES[intervalSpinner.selectedItemPosition]
@@ -324,7 +290,7 @@ class MainActivity : Activity() {
         if (foldersChanged) PhotoState.reset(this)
         Scheduler.apply(this)
         Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
-        Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
+        toast(R.string.saved)
 
         if (configureWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
             WidgetUpdater.update(this)
@@ -342,3 +308,9 @@ class MainActivity : Activity() {
         const val STATE_LOGIN_DEADLINE = "login_deadline"
     }
 }
+
+/** Runs [work] on a background thread and hands its outcome to [done] on the UI thread. */
+fun <T> Activity.inBackground(work: () -> T, done: (Result<T>) -> Unit) =
+    Thread { runCatching(work).let { runOnUiThread { done(it) } } }.start()
+
+fun Throwable.describe(): String = message ?: javaClass.simpleName

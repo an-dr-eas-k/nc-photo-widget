@@ -17,13 +17,12 @@ class OpenPhotoActivity : Activity() {
             // Nothing to open yet, so the tap leads to the settings with the sync status instead.
             startActivity(Intent(this, MainActivity::class.java))
         } else {
-            val uri = Uri.parse("${settings.serverUrl}/f/$fileId")
-            try {
-                startActivity(Intent(Intent.ACTION_VIEW, uri).setPackage(NEXTCLOUD_PACKAGE))
-            } catch (e: ActivityNotFoundException) {
-                // Nextcloud app not installed: fall back to the browser.
+            val view = Intent(Intent.ACTION_VIEW, Uri.parse("${settings.serverUrl}/f/$fileId"))
+            // Falls back to the browser when the Nextcloud app is not installed.
+            for (intent in listOf(Intent(view).setPackage(NEXTCLOUD_PACKAGE), view)) {
                 try {
-                    startActivity(Intent(Intent.ACTION_VIEW, uri))
+                    startActivity(intent)
+                    break
                 } catch (_: ActivityNotFoundException) {
                 }
             }

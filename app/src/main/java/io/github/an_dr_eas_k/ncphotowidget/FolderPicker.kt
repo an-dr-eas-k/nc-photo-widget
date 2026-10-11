@@ -6,7 +6,6 @@ import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.ListView
 import android.widget.Toast
-import java.io.IOException
 
 /** Keeps the dialog the same size whatever the number of folders. */
 private class FixedHeightListView(activity: Activity) : ListView(activity) {
@@ -72,31 +71,22 @@ class FolderPicker(
         folders = emptyList()
         render()
 
-        Thread {
-            try {
-                val names = client.listSubfolders(requested)
-                activity.runOnUiThread {
-                    if (current == generation && dialog.isShowing) {
-                        folders = names
-                        render()
-                    }
-                }
-            } catch (e: IOException) {
-                activity.runOnUiThread {
-                    if (current != generation || !dialog.isShowing) return@runOnUiThread
-                    if (e is HttpException && e.code == 404 && requested != "/") {
-                        path = "/"
-                        load()
-                    } else {
-                        Toast.makeText(
-                            activity,
-                            activity.getString(R.string.error_list_failed, e.message ?: e.javaClass.simpleName),
-                            Toast.LENGTH_LONG,
-                        ).show()
-                    }
+        activity.inBackground({ client.listSubfolders(requested) }) { result ->
+            if (current != generation || !dialog.isShowing) return@inBackground
+            result.onSuccess {
+                folders = it
+                render()
+            }.onFailure { e ->
+                if (e is HttpException && e.code == 404 && requested != "/") {
+                    path = "/"
+                    load()
+                } else {
+                    Toast.makeText(
+                        activity, activity.getString(R.string.error_list_failed, e.describe()), Toast.LENGTH_LONG,
+                    ).show()
                 }
             }
-        }.start()
+        }
     }
 
     private fun render() {
