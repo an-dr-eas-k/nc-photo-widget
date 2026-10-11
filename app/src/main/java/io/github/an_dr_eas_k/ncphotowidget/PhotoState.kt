@@ -11,6 +11,7 @@ object PhotoState {
     private const val KEY_LIST_TIME = "list_time"
     private const val KEY_LIST_DURATION = "list_duration"
     private const val KEY_LIST_COUNT = "list_count"
+    private const val KEY_LIST_ERROR = "list_error"
 
     class Backup(val history: String, val pos: Int)
 
@@ -84,6 +85,8 @@ object PhotoState {
     fun ids(
         c: Context, client: NextcloudClient, folders: List<String>, refreshHours: Int,
         onFirstImage: ((Long) -> Unit)? = null,
+        onProgress: ((Int, Int) -> Unit)? = null,
+        isStopped: () -> Boolean = { false },
     ): LongArray {
         val cached = listFile(c).takeIf { it.exists() }
             ?.readLines()?.mapNotNull { it.toLongOrNull() }?.toLongArray() ?: LongArray(0)
@@ -91,7 +94,7 @@ object PhotoState {
         val stale = refreshHours > 0 && age >= refreshHours * HOUR_MS
         if (cached.isNotEmpty() && !stale) return cached
         return try {
-            refreshList(c, client, folders, if (cached.isEmpty()) onFirstImage else null)
+            refreshList(c, client, folders, if (cached.isEmpty()) onFirstImage else null, onProgress, isStopped)
         } catch (e: IOException) {
             // An old list beats no list when the server is unreachable.
             if (cached.isEmpty()) throw e
@@ -103,24 +106,36 @@ object PhotoState {
     fun refreshList(
         c: Context, client: NextcloudClient, folders: List<String>,
         onFirstImage: ((Long) -> Unit)? = null,
+        onProgress: ((Int, Int) -> Unit)? = null,
+        isStopped: () -> Boolean = { false },
     ): LongArray {
         val start = System.currentTimeMillis()
-        val fresh = client.listImageIds(folders, onFirstImage)
+        val fresh = try {
+            client.listImageIds(folders, onFirstImage, onProgress, isStopped)
+        } catch (e: Exception) {
+            // Kept so the settings screen can explain why the widget stays empty.
+            if (!isStopped()) prefs(c).edit().putString(KEY_LIST_ERROR, e.message ?: e.javaClass.simpleName).apply()
+            throw e
+        }
         val end = System.currentTimeMillis()
         listFile(c).writeText(fresh.joinToString("\n"))
         prefs(c).edit()
             .putLong(KEY_LIST_TIME, end)
             .putLong(KEY_LIST_DURATION, end - start)
             .putInt(KEY_LIST_COUNT, fresh.size)
+            .remove(KEY_LIST_ERROR)
             .apply()
         return fresh
     }
 
-    class ListStats(val timestamp: Long, val durationMs: Long, val count: Int)
+    class ListStats(val timestamp: Long, val durationMs: Long, val count: Int, val error: String?)
 
     fun listStats(c: Context): ListStats? {
         val p = prefs(c)
-        if (!p.contains(KEY_LIST_TIME)) return null
-        return ListStats(p.getLong(KEY_LIST_TIME, 0), p.getLong(KEY_LIST_DURATION, 0), p.getInt(KEY_LIST_COUNT, 0))
+        if (!p.contains(KEY_LIST_TIME) && !p.contains(KEY_LIST_ERROR)) return null
+        return ListStats(
+            p.getLong(KEY_LIST_TIME, 0), p.getLong(KEY_LIST_DURATION, 0), p.getInt(KEY_LIST_COUNT, 0),
+            p.getString(KEY_LIST_ERROR, null),
+        )
     }
 }

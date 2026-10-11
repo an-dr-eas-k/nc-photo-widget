@@ -17,6 +17,10 @@ import android.widget.RadioGroup
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.lifecycle.LiveData
+import androidx.lifecycle.Observer
+import androidx.work.WorkInfo
+import androidx.work.WorkManager
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,6 +46,9 @@ class MainActivity : Activity() {
     private val pollTask = Runnable { pollLogin() }
 
     private var configureWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+
+    private lateinit var workInfos: LiveData<List<WorkInfo>>
+    private val workObserver = Observer<List<WorkInfo>> { renderScanState(it) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         settings = Settings(this)
@@ -80,6 +87,7 @@ class MainActivity : Activity() {
         intervalSpinner.setSelection(Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0))
         listRefreshSpinner.setSelection(Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0))
         showLoginStatus()
+        workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.ON_DEMAND)
 
         findViewById<Button>(R.id.login).setOnClickListener { startLogin() }
         findViewById<Button>(R.id.add_folder).setOnClickListener { addFolder() }
@@ -106,12 +114,13 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        // The widget may have scanned in the background since this screen was last shown.
-        showListStats()
+        // Scans run in the background worker; follow them while this screen is visible.
+        workInfos.observeForever(workObserver)
         if (pendingSession != null) pollLogin()
     }
 
     override fun onPause() {
+        workInfos.removeObserver(workObserver)
         handler.removeCallbacks(pollTask)
         super.onPause()
     }
@@ -244,16 +253,35 @@ class MainActivity : Activity() {
 
     private fun showListStats() {
         val stats = PhotoState.listStats(this)
-        listStats.text = if (stats == null) {
-            getString(R.string.stats_none)
-        } else {
-            getString(
+        val text = when {
+            stats == null -> getString(R.string.stats_none)
+            stats.timestamp == 0L -> ""
+            else -> getString(
                 R.string.stats_format,
                 stats.count,
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(Date(stats.timestamp)),
                 formatDuration(stats.durationMs),
             )
         }
+        val error = stats?.error?.let { getString(R.string.stats_error, it) }
+        listStats.text = listOf(text, error).filter { !it.isNullOrEmpty() }.joinToString("\n")
+    }
+
+    private fun renderScanState(infos: List<WorkInfo>) {
+        val scanning = infos.firstOrNull {
+            it.state == WorkInfo.State.RUNNING && it.progress.keyValueMap.containsKey(PhotoWorker.PROGRESS_FOLDERS)
+        }
+        val refreshPending = infos.any { !it.state.isFinished && PhotoWorker.ACTION_REFRESH in it.tags }
+        when {
+            scanning != null -> listStats.text = getString(
+                R.string.stats_scanning_progress,
+                scanning.progress.getInt(PhotoWorker.PROGRESS_FOLDERS, 0),
+                scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0),
+            )
+            refreshPending -> listStats.setText(R.string.stats_scanning)
+            else -> showListStats()
+        }
+        refreshNow.isEnabled = !refreshPending
     }
 
     private fun formatDuration(ms: Long) =
@@ -265,26 +293,15 @@ class MainActivity : Activity() {
             Toast.makeText(this, R.string.error_not_logged_in, Toast.LENGTH_SHORT).show()
             return
         }
-        val app = applicationContext
-        val savedFolders = settings.folders
-        refreshNow.isEnabled = false
-        listStats.setText(R.string.stats_scanning)
-        Thread {
-            try {
-                PhotoState.refreshList(app, NextcloudClient(settings), savedFolders)
-                runOnUiThread { showListStats() }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    showListStats()
-                    Toast.makeText(
-                        this, getString(R.string.stats_refresh_failed, e.message ?: e.javaClass.simpleName),
-                        Toast.LENGTH_LONG,
-                    ).show()
-                }
-            } finally {
-                runOnUiThread { refreshNow.isEnabled = true }
-            }
-        }.start()
+        if (folders != settings.folders) {
+            Toast.makeText(this, R.string.error_unsaved_folders, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (folders.isEmpty()) {
+            Toast.makeText(this, R.string.error_no_folder, Toast.LENGTH_SHORT).show()
+            return
+        }
+        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
     }
 
     private fun save() {
@@ -303,7 +320,7 @@ class MainActivity : Activity() {
 
         if (foldersChanged) PhotoState.reset(this)
         Scheduler.apply(this)
-        Scheduler.enqueue(this, PhotoWorker.ACTION_NEXT)
+        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
         Toast.makeText(this, R.string.saved, Toast.LENGTH_SHORT).show()
 
         if (configureWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {

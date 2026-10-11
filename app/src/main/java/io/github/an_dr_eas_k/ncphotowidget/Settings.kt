@@ -19,7 +19,7 @@ class Settings(context: Context) {
 
     var folders: List<String>
         get() = (prefs.getString("folders", null) ?: prefs.getString("folder", null))
-            ?.split('\n')?.filter { it.isNotBlank() }.orEmpty().ifEmpty { listOf("/") }
+            ?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
         set(v) = prefs.edit().putString("folders", v.joinToString("\n")).remove("folder").apply()
 
     var listRefreshHours: Int
