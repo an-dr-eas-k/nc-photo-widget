@@ -3,9 +3,7 @@ package io.github.an_dr_eas_k.ncphotowidget
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
-import android.content.Intent
 import android.os.SystemClock
-import androidx.work.Data
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
@@ -168,28 +166,24 @@ object Scheduler {
 
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
+    private fun request(action: String) = OneTimeWorkRequestBuilder<PhotoWorker>()
+        .setConstraints(network)
+        .setInputData(workDataOf(PhotoWorker.KEY_ACTION to action))
+        .addTag(action)
+        .build()
+
     fun enqueue(c: Context, action: String) {
         if (action == PhotoWorker.ACTION_REFRESH) return scan(c, restart = true)
         keepAlive(c)
-        val request = OneTimeWorkRequestBuilder<PhotoWorker>()
-            .setConstraints(network)
-            .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, action).build())
-            .addTag(action)
-            .build()
-        WorkManager.getInstance(c).enqueueUniqueWork(ON_DEMAND, ExistingWorkPolicy.APPEND_OR_REPLACE, request)
+        WorkManager.getInstance(c).enqueueUniqueWork(ON_DEMAND, ExistingWorkPolicy.APPEND_OR_REPLACE, request(action))
     }
 
     /** Scans run apart from taps, so a long scan never holds up the next picture. */
     fun scan(c: Context, restart: Boolean) {
         keepAlive(c)
-        val request = OneTimeWorkRequestBuilder<PhotoWorker>()
-            .setConstraints(network)
-            .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, PhotoWorker.ACTION_REFRESH).build())
-            .addTag(PhotoWorker.ACTION_REFRESH)
-            .build()
         // Restarting also stops a scan of folders that may no longer be selected.
         val policy = if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
-        WorkManager.getInstance(c).enqueueUniqueWork(SCAN, policy, request)
+        WorkManager.getInstance(c).enqueueUniqueWork(SCAN, policy, request(PhotoWorker.ACTION_REFRESH))
     }
 
     fun usesAlarm(c: Context) = Settings(c).intervalMinutes < MIN_PERIODIC_MINUTES
@@ -223,16 +217,17 @@ object Scheduler {
         val request = PeriodicWorkRequestBuilder<PhotoWorker>(minutes, TimeUnit.MINUTES)
             .setInitialDelay(minutes, TimeUnit.MINUTES)
             .setConstraints(network)
-            .setInputData(Data.Builder().putString(PhotoWorker.KEY_ACTION, PhotoWorker.ACTION_NEXT).build())
+            .setInputData(workDataOf(PhotoWorker.KEY_ACTION to PhotoWorker.ACTION_NEXT))
             .build()
         wm.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 
     /** Handles one alarm: shows the next picture and arms the following alarm. */
     fun onTick(c: Context) {
-        if (!usesAlarm(c) || !Settings(c).isConfigured || !WidgetUpdater.hasWidgets(c)) return
+        val settings = Settings(c)
+        if (!usesAlarm(c) || !settings.isConfigured || !WidgetUpdater.hasWidgets(c)) return
         enqueue(c, PhotoWorker.ACTION_NEXT)
-        scheduleAlarm(c, Settings(c).intervalMinutes)
+        scheduleAlarm(c, settings.intervalMinutes)
     }
 
     // Non-wakeup and inexact: the phone is not woken just to change a picture, and Doze may delay it.
@@ -246,9 +241,5 @@ object Scheduler {
 
     private fun cancelAlarm(c: Context) = c.getSystemService(AlarmManager::class.java).cancel(alarmIntent(c))
 
-    private fun alarmIntent(c: Context): PendingIntent = PendingIntent.getBroadcast(
-        c, 4,
-        Intent(c, PhotoWidgetProvider::class.java).setAction(ACTION_TICK),
-        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-    )
+    private fun alarmIntent(c: Context): PendingIntent = WidgetUpdater.broadcast(c, ACTION_TICK, 4)
 }

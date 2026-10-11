@@ -10,6 +10,7 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
@@ -23,6 +24,12 @@ private val http = OkHttpClient.Builder()
     .build()
 
 private const val USER_AGENT = "NextcloudPhotoWidget"
+
+private fun <T> call(request: Request.Builder, read: (Response) -> T): T =
+    http.newCall(request.header("User-Agent", USER_AGENT).build()).execute().use { response ->
+        if (!response.isSuccessful) throw HttpException(response.code)
+        read(response)
+    }
 
 class NextcloudClient(private val settings: Settings) {
     private val auth = Credentials.basic(settings.username, settings.appPassword)
@@ -83,15 +90,10 @@ class NextcloudClient(private val settings: Settings) {
         val request = Request.Builder()
             .url(url)
             .header("Authorization", auth)
-            .header("User-Agent", USER_AGENT)
             .header("Depth", "1")
             .method("PROPFIND", PROPFIND_BODY.toRequestBody("application/xml".toMediaType()))
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw HttpException(response.code)
-            // The first response element is the requested folder itself.
-            return parseMultiStatus(response.body!!.byteStream()).drop(1)
-        }
+        // The first response element is the requested folder itself.
+        return call(request) { parseMultiStatus(it.body!!.byteStream()).drop(1) }
     }
 
     private fun parseMultiStatus(stream: InputStream): List<Entry> {
@@ -132,15 +134,7 @@ class NextcloudClient(private val settings: Settings) {
             .addQueryParameter("a", "true")
             .addQueryParameter("forceIcon", "0")
             .build()
-        val request = Request.Builder()
-            .url(url)
-            .header("Authorization", auth)
-            .header("User-Agent", USER_AGENT)
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw HttpException(response.code)
-            return response.body!!.bytes()
-        }
+        return call(Request.Builder().url(url).header("Authorization", auth)) { it.body!!.bytes() }
     }
 
     private companion object {
@@ -155,39 +149,30 @@ class NextcloudClient(private val settings: Settings) {
 /** Nextcloud Login Flow v2: yields a revocable app password, so the real password is never stored. */
 object LoginFlow {
     class Session(val loginUrl: String, val pollUrl: String, val token: String)
-    class Result(val server: String, val username: String, val appPassword: String)
+    class Result(val username: String, val appPassword: String)
 
     fun start(serverUrl: String): Session {
-        val url = serverUrl.toHttpUrl().newBuilder().addPathSegments("index.php/login/v2").build()
-        val request = Request.Builder()
-            .url(url)
-            .header("User-Agent", USER_AGENT)
-            .post(FormBody.Builder().build())
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (!response.isSuccessful) throw HttpException(response.code)
-            val json = JSONObject(response.body!!.string())
-            val poll = json.getJSONObject("poll")
-            // Poll on the host the user typed: the server may report an internal host name.
-            val base = serverUrl.toHttpUrl()
-            val pollUrl = poll.getString("endpoint").toHttpUrl().newBuilder()
-                .scheme(base.scheme).host(base.host).port(base.port).build()
-            return Session(json.getString("login"), pollUrl.toString(), poll.getString("token"))
-        }
+        val base = serverUrl.toHttpUrl()
+        val url = base.newBuilder().addPathSegments("index.php/login/v2").build()
+        val json = call(Request.Builder().url(url).post(FormBody.Builder().build())) { JSONObject(it.body!!.string()) }
+        val poll = json.getJSONObject("poll")
+        // Poll on the host the user typed: the server may report an internal host name.
+        val pollUrl = poll.getString("endpoint").toHttpUrl().newBuilder()
+            .scheme(base.scheme).host(base.host).port(base.port).build()
+        return Session(json.getString("login"), pollUrl.toString(), poll.getString("token"))
     }
 
     /** Returns null until the user has finished logging in. */
     fun poll(session: Session): Result? {
         val request = Request.Builder()
             .url(session.pollUrl)
-            .header("User-Agent", USER_AGENT)
             .post(FormBody.Builder().add("token", session.token).build())
-            .build()
-        http.newCall(request).execute().use { response ->
-            if (response.code == 404) return null
-            if (!response.isSuccessful) throw HttpException(response.code)
-            val json = JSONObject(response.body!!.string())
-            return Result(json.getString("server"), json.getString("loginName"), json.getString("appPassword"))
+        val json = try {
+            call(request) { JSONObject(it.body!!.string()) }
+        } catch (e: HttpException) {
+            if (e.code == 404) return null
+            throw e
         }
+        return Result(json.getString("loginName"), json.getString("appPassword"))
     }
 }

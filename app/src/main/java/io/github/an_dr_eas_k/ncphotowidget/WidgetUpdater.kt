@@ -5,7 +5,6 @@ import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.view.View
 import android.widget.RemoteViews
@@ -57,8 +56,19 @@ object WidgetUpdater {
         val bitmap = if (hasImage(c)) BitmapFactory.decodeFile(imageFile(c).path) else null
         val settings = Settings(c)
         val placeholder = if (settings.isConfigured && settings.folders.isNotEmpty()) R.string.widget_loading else R.string.widget_setup
-        val views = buildViews(c, bitmap, message ?: if (bitmap == null) c.getString(placeholder) else null)
+        val text = message ?: if (bitmap == null) c.getString(placeholder) else null
+
+        val views = RemoteViews(c.packageName, R.layout.widget_photo)
+        if (bitmap != null) views.setImageViewBitmap(R.id.image, bitmap)
+        views.setTextViewText(R.id.message, text ?: "")
+        views.setViewVisibility(R.id.message, if (text == null) View.GONE else View.VISIBLE)
         views.setViewVisibility(R.id.loading, if (loading) View.VISIBLE else View.GONE)
+        views.setOnClickPendingIntent(R.id.zone_left, broadcast(c, PhotoWorker.ACTION_PREV, 1))
+        views.setOnClickPendingIntent(R.id.zone_right, broadcast(c, PhotoWorker.ACTION_NEXT, 2))
+        views.setOnClickPendingIntent(
+            R.id.zone_center,
+            PendingIntent.getActivity(c, 3, Intent(c, OpenPhotoActivity::class.java), PENDING_FLAGS),
+        )
         AppWidgetManager.getInstance(c).updateAppWidget(ids, views)
     }
 
@@ -71,28 +81,9 @@ object WidgetUpdater {
         AppWidgetManager.getInstance(c).partiallyUpdateAppWidget(ids, views)
     }
 
-    private fun buildViews(c: Context, bitmap: Bitmap?, message: String?): RemoteViews {
-        val views = RemoteViews(c.packageName, R.layout.widget_photo)
-        if (bitmap != null) views.setImageViewBitmap(R.id.image, bitmap)
-        views.setTextViewText(R.id.message, message ?: "")
-        views.setViewVisibility(R.id.message, if (message == null) View.GONE else View.VISIBLE)
+    private const val PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
 
-        views.setOnClickPendingIntent(R.id.zone_left, broadcast(c, PhotoWorker.ACTION_PREV, 1))
-        views.setOnClickPendingIntent(R.id.zone_right, broadcast(c, PhotoWorker.ACTION_NEXT, 2))
-        views.setOnClickPendingIntent(
-            R.id.zone_center,
-            PendingIntent.getActivity(
-                c, 3, Intent(c, OpenPhotoActivity::class.java),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-            ),
-        )
-        return views
-    }
-
-    private fun broadcast(c: Context, action: String, requestCode: Int): PendingIntent =
-        PendingIntent.getBroadcast(
-            c, requestCode,
-            Intent(c, PhotoWidgetProvider::class.java).setAction(action),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
-        )
+    fun broadcast(c: Context, action: String, requestCode: Int): PendingIntent = PendingIntent.getBroadcast(
+        c, requestCode, Intent(c, PhotoWidgetProvider::class.java).setAction(action), PENDING_FLAGS,
+    )
 }
