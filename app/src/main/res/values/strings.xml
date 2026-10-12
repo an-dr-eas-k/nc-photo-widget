@@ -42,9 +42,6 @@
     <string name="help_widget">Tap the left edge of the widget for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app. To open these settings again, long-press the widget and tap its settings button.</string>
 
     <string-array name="interval_labels">
-        <item>2 minutes</item>
-        <item>5 minutes</item>
-        <item>10 minutes</item>
         <item>15 minutes</item>
         <item>30 minutes</item>
         <item>1 hour</item>
@@ -52,6 +49,7 @@
         <item>6 hours</item>
         <item>12 hours</item>
         <item>24 hours</item>
+        <item>Only manually</item>
     </string-array>
 
     <string-array name="list_refresh_labels">

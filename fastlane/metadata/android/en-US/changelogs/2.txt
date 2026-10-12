@@ -1,0 +1,1 @@
+Smaller app through code shrinking. The picture interval now starts at 15 minutes, and a new "Only manually" option changes the picture only on tap.

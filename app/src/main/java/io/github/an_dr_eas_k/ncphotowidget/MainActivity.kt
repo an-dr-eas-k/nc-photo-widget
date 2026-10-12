@@ -52,7 +52,7 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         settings = Settings(this)
-        // A force stop cancels the widget's tap handlers and alarms; opening the settings restores them.
+        // A force stop cancels the widget's tap handlers; opening the settings restores them.
         WidgetUpdater.update(this)
         Scheduler.apply(this)
         // Launched from the widget's setup/reconfigure button; must answer with the widget id.

@@ -12,8 +12,6 @@ class PhotoWidgetProvider : AppWidgetProvider() {
         if (!WidgetUpdater.hasImage(context) && Settings(context).isConfigured) {
             Scheduler.enqueue(context, PhotoWorker.ACTION_NEXT)
         }
-        // Alarms do not survive a reboot, so re-arm them whenever the widgets are restored.
-        if (Scheduler.usesAlarm(context)) Scheduler.apply(context)
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -24,7 +22,6 @@ class PhotoWidgetProvider : AppWidgetProvider() {
                 WidgetUpdater.showLoading(context)
                 Scheduler.enqueue(context, intent.action!!)
             }
-            Scheduler.ACTION_TICK -> Scheduler.onTick(context)
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 WidgetUpdater.update(context)
                 Scheduler.apply(context)

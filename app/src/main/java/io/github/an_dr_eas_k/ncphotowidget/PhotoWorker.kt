@@ -1,7 +1,5 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
-import android.app.AlarmManager
-import android.app.PendingIntent
 import android.content.Context
 import android.os.SystemClock
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -160,9 +158,8 @@ object Scheduler {
     const val SCAN = "scan"
     private const val KEEP_ALIVE = "keep-alive"
 
-    /** WorkManager cannot repeat faster than this, so shorter intervals use an alarm chain. */
+    /** WorkManager cannot repeat faster than this; shorter intervals saved by version 1.0 are raised to it. */
     private const val MIN_PERIODIC_MINUTES = 15
-    const val ACTION_TICK = "io.github.an_dr_eas_k.ncphotowidget.TICK"
 
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
@@ -186,8 +183,6 @@ object Scheduler {
         WorkManager.getInstance(c).enqueueUniqueWork(SCAN, policy, request(PhotoWorker.ACTION_REFRESH))
     }
 
-    fun usesAlarm(c: Context) = Settings(c).intervalMinutes < MIN_PERIODIC_MINUTES
-
     // WorkManager toggles a manifest component whenever no work is pending; that package change
     // makes the launcher rebuild the widget, which flickers. A job that never comes due prevents it.
     private fun keepAlive(c: Context) {
@@ -201,19 +196,17 @@ object Scheduler {
     fun apply(c: Context) {
         val wm = WorkManager.getInstance(c)
         val settings = Settings(c)
-        cancelAlarm(c)
         if (!settings.isConfigured || !WidgetUpdater.hasWidgets(c)) {
             wm.cancelUniqueWork(PERIODIC)
             wm.cancelUniqueWork(KEEP_ALIVE)
             return
         }
         keepAlive(c)
-        if (usesAlarm(c)) {
+        if (settings.intervalMinutes == Settings.INTERVAL_MANUAL) {
             wm.cancelUniqueWork(PERIODIC)
-            scheduleAlarm(c, settings.intervalMinutes)
             return
         }
-        val minutes = settings.intervalMinutes.toLong()
+        val minutes = settings.intervalMinutes.coerceAtLeast(MIN_PERIODIC_MINUTES).toLong()
         val request = PeriodicWorkRequestBuilder<PhotoWorker>(minutes, TimeUnit.MINUTES)
             .setInitialDelay(minutes, TimeUnit.MINUTES)
             .setConstraints(network)
@@ -221,25 +214,4 @@ object Scheduler {
             .build()
         wm.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
-
-    /** Handles one alarm: shows the next picture and arms the following alarm. */
-    fun onTick(c: Context) {
-        val settings = Settings(c)
-        if (!usesAlarm(c) || !settings.isConfigured || !WidgetUpdater.hasWidgets(c)) return
-        enqueue(c, PhotoWorker.ACTION_NEXT)
-        scheduleAlarm(c, settings.intervalMinutes)
-    }
-
-    // Non-wakeup and inexact: the phone is not woken just to change a picture, and Doze may delay it.
-    private fun scheduleAlarm(c: Context, minutes: Int) {
-        c.getSystemService(AlarmManager::class.java).setAndAllowWhileIdle(
-            AlarmManager.ELAPSED_REALTIME,
-            SystemClock.elapsedRealtime() + minutes * 60_000L,
-            alarmIntent(c),
-        )
-    }
-
-    private fun cancelAlarm(c: Context) = c.getSystemService(AlarmManager::class.java).cancel(alarmIntent(c))
-
-    private fun alarmIntent(c: Context): PendingIntent = WidgetUpdater.broadcast(c, ACTION_TICK, 4)
 }
