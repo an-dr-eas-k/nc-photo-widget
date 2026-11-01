@@ -17,6 +17,14 @@
 
     <string name="row_folders">Folders</string>
     <string name="row_tags">Tag filter</string>
+    <string name="row_time_span">Time span</string>
+    <string name="time_off">All photos, whenever taken</string>
+    <string name="time_last_days">Photos of the last %1$d days</string>
+    <string name="label_days">Days (0 = off)</string>
+    <string name="time_last_days_repeat">Photos of the last %1$d days, also in earlier years</string>
+    <string name="row_time_repeat">Repeat in earlier years</string>
+    <string name="time_repeat_detail">Also show photos taken in these days of every earlier year</string>
+    <string name="time_repeat_unavailable">Only for time spans of up to 365 days</string>
     <string name="row_account">Account</string>
     <string name="home_photos">photos in the widget</string>
     <string name="home_connected">Connected to Nextcloud</string>
@@ -24,8 +32,9 @@
     <string name="home_no_count">–</string>
     <string name="folders_none">None selected</string>
     <string name="tags_title">Tag filter</string>
-    <string name="tags_none_selected">No tag selected, so no tag filter. Photos must have all selected tags.</string>
-    <string name="tags_selected">Photos need all of: %1$s</string>
+    <string name="tags_none_selected">No tag selected, so no tag filter. Tap a tag once for "any of" (half), twice for "all of" (full), a third time to clear it.</string>
+    <string name="tags_any_of">Any of: %1$s</string>
+    <string name="tags_all_of">All of: %1$s</string>
     <string name="folders_title">Photo folders</string>
     <string name="folders_back">Back</string>
     <string name="folders_empty">No subfolders here</string>
@@ -35,7 +44,7 @@
     <string name="folders_selected">Selected: %1$s</string>
     <string name="folders_select">Select %1$s</string>
     <string name="error_no_folder">Add at least one folder</string>
-    <string name="label_tags">Only photos with all of these tags (within the folders)</string>
+    <string name="label_tags">Only photos matching these tags (within the folders)</string>
     <string name="tags_none">No tag filter</string>
     <string name="error_no_tags">No tags found on the server</string>
     <string name="error_tags_failed">Could not load tags: %1$s</string>
@@ -49,6 +58,8 @@
     <string name="error_list_failed">Could not load folders: %1$s</string>
     <string name="label_interval">Change picture every</string>
     <string name="button_save">Save and apply</string>
+    <string name="widget_failed">The last request failed</string>
+    <string name="label_widget_style">Widget style</string>
     <string name="label_appearance">Appearance</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
@@ -57,6 +68,15 @@
     <string name="error_not_logged_in">Log in first</string>
     <string name="error_bad_url">Enter a valid server address</string>
     <string name="help_widget">Tap the left edge of the widget for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app. To open these settings again, long-press the widget and tap its settings button.</string>
+
+    <string-array name="shape_labels">
+        <item>Rounded corners</item>
+        <item>Square</item>
+        <item>Circle</item>
+        <item>Oval</item>
+        <item>Pill</item>
+        <item>Cut corners</item>
+    </string-array>
 
     <string-array name="theme_labels">
         <item>System</item>

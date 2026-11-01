@@ -125,6 +125,14 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Widget style. -->
+        <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+
+            <include
+                android:id="@+id/rowStyle"
+                layout="@layout/item_style_row" />
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Settings. -->
         <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
 
@@ -143,6 +151,10 @@
 
                 <include
                     android:id="@+id/rowTags"
+                    layout="@layout/item_home_row" />
+
+                <include
+                    android:id="@+id/rowTimeSpan"
                     layout="@layout/item_home_row" />
 
                 <include

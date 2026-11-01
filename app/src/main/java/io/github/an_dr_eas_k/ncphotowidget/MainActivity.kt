@@ -16,12 +16,14 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.R as AppCompatR
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.color.MaterialColors
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.textfield.TextInputEditText
@@ -32,11 +34,15 @@ import com.google.android.material.R as MaterialR
 
 class MainActivity : AppCompatActivity() {
     private lateinit var settings: Settings
+    private lateinit var config: WidgetConfig
+    private lateinit var state: PhotoState
     private var server = ""
     private var folders = listOf<String>()
     private var tags = listOf<Tag>()
     private var intervalIndex = 0
     private var listRefreshIndex = 0
+    private var shape = WidgetShape.ROUNDED
+    private var timeFilter = TimeFilter()
 
     private lateinit var statusCard: MaterialCardView
     private lateinit var statusDot: View
@@ -57,7 +63,8 @@ class MainActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val pollTask = Runnable { pollLogin() }
 
-    private var configureWidgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+    private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
+    private var launchedForConfigure = false
 
     private lateinit var workInfos: LiveData<List<WorkInfo>>
     private val workObserver = Observer<List<WorkInfo>> { renderScanState(it) }
@@ -71,24 +78,29 @@ class MainActivity : AppCompatActivity() {
 
     private val tagPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         val data = result.data?.takeIf { result.resultCode == RESULT_OK } ?: return@registerForActivityResult
-        val ids = data.getLongArrayExtra(TagPickerActivity.EXTRA_IDS) ?: return@registerForActivityResult
-        val names = data.getStringArrayExtra(TagPickerActivity.EXTRA_NAMES).orEmpty()
-        tags = ids.mapIndexed { i, id -> Tag(id, names.getOrElse(i) { "" }) }
+        val lines = data.getStringArrayExtra(TagPickerActivity.EXTRA_TAGS) ?: return@registerForActivityResult
+        tags = lines.mapNotNull { Tag.decode(it) }
         renderRows()
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         settings = Settings(this)
-        // A force stop cancels the widget's tap handlers; opening the settings restores them.
-        WidgetUpdater.update(this)
-        Scheduler.apply(this)
-        // Launched from the widget's setup/reconfigure button; must answer with the widget id.
-        if (intent.action == AppWidgetManager.ACTION_APPWIDGET_CONFIGURE) {
-            configureWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-            setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, configureWidgetId))
-        }
         AppCompatDelegate.setDefaultNightMode(nightMode(settings.themeMode))
         super.onCreate(savedInstanceState)
+        // The settings belong to one widget; without one there is nothing to edit.
+        widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return finish()
+        // Launched from the widget's setup/reconfigure button; must answer with the widget id.
+        launchedForConfigure = intent.action == AppWidgetManager.ACTION_APPWIDGET_CONFIGURE
+        if (launchedForConfigure) {
+            setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
+        }
+        WidgetConfig.migrateLegacy(this)
+        config = WidgetConfig(this, widgetId)
+        state = PhotoState(this, widgetId)
+        // A force stop cancels the widgets' tap handlers; opening the settings restores them.
+        WidgetUpdater.updateAll(this)
+        Scheduler.apply(this)
         setContentView(R.layout.activity_main)
 
         statusCard = findViewById(R.id.statusCard)
@@ -102,26 +114,29 @@ class MainActivity : AppCompatActivity() {
         styleStatusCard()
 
         server = settings.serverUrl
-        folders = settings.folders
-        tags = settings.tags
-        intervalIndex = Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0)
-        listRefreshIndex = Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0)
+        folders = config.folders
+        tags = config.tags
+        intervalIndex = Settings.INTERVALS_MINUTES.indexOf(config.intervalMinutes).coerceAtLeast(0)
+        listRefreshIndex = Settings.LIST_REFRESH_HOURS.indexOf(config.listRefreshHours).coerceAtLeast(0)
+        shape = config.shape
+        timeFilter = config.timeFilter
         // Unsaved edits survive the screen being recreated, e.g. by a theme change.
         savedInstanceState?.let { state ->
             state.getStringArrayList(STATE_FOLDERS)?.let { folders = it }
-            state.getLongArray(STATE_TAG_IDS)?.let { ids ->
-                val names = state.getStringArray(STATE_TAG_NAMES).orEmpty()
-                tags = ids.mapIndexed { i, id -> Tag(id, names.getOrElse(i) { "" }) }
-            }
+            state.getStringArray(STATE_TAGS)?.let { lines -> tags = lines.mapNotNull { Tag.decode(it) } }
             intervalIndex = state.getInt(STATE_INTERVAL, intervalIndex)
             listRefreshIndex = state.getInt(STATE_LIST_REFRESH, listRefreshIndex)
             server = state.getString(STATE_SERVER, server)
+            shape = WidgetShape.entries.getOrElse(state.getInt(STATE_SHAPE, shape.ordinal)) { shape }
+            timeFilter = TimeFilter(state.getInt(STATE_DAYS, timeFilter.days), state.getBoolean(STATE_REPEAT, timeFilter.repeatYears))
         }
         accountDetail = loginStatusText()
-        workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.SCAN)
+        workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.scanName(widgetId))
 
+        setUpRow(R.id.rowStyle, R.string.label_widget_style) { chooseShape() }
         setUpRow(R.id.rowFolders, R.string.row_folders) { chooseFolders() }
         setUpRow(R.id.rowTags, R.string.row_tags) { chooseTags() }
+        setUpRow(R.id.rowTimeSpan, R.string.row_time_span) { chooseDays() }
         setUpRow(R.id.rowInterval, R.string.label_interval) { chooseInterval() }
         setUpRow(R.id.rowListRefresh, R.string.label_list_refresh) { chooseListRefresh() }
         setUpRow(R.id.rowAccount, R.string.row_account) { showAccountDialog() }
@@ -142,11 +157,13 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putStringArrayList(STATE_FOLDERS, ArrayList(folders))
-        outState.putLongArray(STATE_TAG_IDS, tags.map { it.id }.toLongArray())
-        outState.putStringArray(STATE_TAG_NAMES, tags.map { it.name }.toTypedArray())
+        outState.putStringArray(STATE_TAGS, tags.map { it.encode() }.toTypedArray())
         outState.putInt(STATE_INTERVAL, intervalIndex)
         outState.putInt(STATE_LIST_REFRESH, listRefreshIndex)
         outState.putString(STATE_SERVER, server)
+        outState.putInt(STATE_SHAPE, shape.ordinal)
+        outState.putInt(STATE_DAYS, timeFilter.days)
+        outState.putBoolean(STATE_REPEAT, timeFilter.repeatYears)
         pendingSession?.let {
             outState.putString(STATE_LOGIN_TOKEN, it.token)
             outState.putString(STATE_LOGIN_POLL_URL, it.pollUrl)
@@ -157,13 +174,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!::workInfos.isInitialized) return
         // Scans run in the background worker; follow them while this screen is visible.
         workInfos.observeForever(workObserver)
         if (pendingSession != null) pollLogin()
     }
 
     override fun onPause() {
-        workInfos.removeObserver(workObserver)
+        if (::workInfos.isInitialized) workInfos.removeObserver(workObserver)
         handler.removeCallbacks(pollTask)
         super.onPause()
     }
@@ -203,8 +221,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderRows() {
+        setDetail(R.id.rowStyle, resources.getStringArray(R.array.shape_labels)[shape.ordinal])
+        findViewById<ShapePreviewView>(R.id.stylePreview).shape = shape
         setDetail(R.id.rowFolders, if (folders.isEmpty()) getString(R.string.folders_none) else folders.joinToString(", "))
-        setDetail(R.id.rowTags, if (tags.isEmpty()) getString(R.string.tags_none) else tags.joinToString(", ") { it.name })
+        setDetail(R.id.rowTags, if (tags.isEmpty()) getString(R.string.tags_none) else TagPickerActivity.describeTags(this, tags).replace("\n", "; "))
+        setDetail(
+            R.id.rowTimeSpan,
+            when {
+                !timeFilter.active -> getString(R.string.time_off)
+                timeFilter.repeatYears && timeFilter.canRepeat -> getString(R.string.time_last_days_repeat, timeFilter.days)
+                else -> getString(R.string.time_last_days, timeFilter.days)
+            },
+        )
         setDetail(R.id.rowInterval, resources.getStringArray(R.array.interval_labels)[intervalIndex])
         setDetail(R.id.rowListRefresh, resources.getStringArray(R.array.list_refresh_labels)[listRefreshIndex])
         setDetail(R.id.rowAccount, accountDetail)
@@ -237,6 +265,40 @@ class MainActivity : AppCompatActivity() {
 
     private fun chooseListRefresh() = chooseOne(R.string.label_list_refresh, R.array.list_refresh_labels, listRefreshIndex) {
         listRefreshIndex = it
+    }
+
+    private fun chooseShape() = chooseOne(R.string.label_widget_style, R.array.shape_labels, shape.ordinal) {
+        shape = WidgetShape.entries[it]
+    }
+
+    private fun chooseDays() {
+        val view = layoutInflater.inflate(R.layout.dialog_days, null)
+        val field = view.findViewById<TextInputEditText>(R.id.days)
+        val repeat = view.findViewById<MaterialCheckBox>(R.id.repeat)
+        val repeatDetail = view.findViewById<TextView>(R.id.repeatDetail)
+        field.setText(timeFilter.days.toString())
+        repeat.isChecked = timeFilter.repeatYears
+        // Repeating only makes sense for spans shorter than a year, so the box follows what is typed.
+        fun showRepeat() {
+            val canRepeat = TimeFilter(field.text.toString().toIntOrNull() ?: 0).canRepeat
+            repeat.isEnabled = canRepeat
+            repeatDetail.setText(if (canRepeat) R.string.time_repeat_detail else R.string.time_repeat_unavailable)
+        }
+        showRepeat()
+        field.doAfterTextChanged { showRepeat() }
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.row_time_span)
+            .setView(view)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                // A disabled box keeps its earlier value, so a typo does not lose the choice.
+                timeFilter = TimeFilter(
+                    field.text.toString().toIntOrNull() ?: 0,
+                    if (repeat.isEnabled) repeat.isChecked else timeFilter.repeatYears,
+                )
+                renderRows()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun chooseTheme() = chooseOne(R.string.label_appearance, R.array.theme_labels, settings.themeMode) { mode ->
@@ -323,13 +385,12 @@ class MainActivity : AppCompatActivity() {
         if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
         tagPicker.launch(
             Intent(this, TagPickerActivity::class.java)
-                .putExtra(TagPickerActivity.EXTRA_IDS, tags.map { it.id }.toLongArray())
-                .putExtra(TagPickerActivity.EXTRA_NAMES, tags.map { it.name }.toTypedArray()),
+                .putExtra(TagPickerActivity.EXTRA_TAGS, tags.map { it.encode() }.toTypedArray()),
         )
     }
 
     private fun showListStats() {
-        val stats = PhotoState.listStats(this)
+        val stats = state.listStats()
         statusCount.text = stats?.takeIf { it.timestamp != 0L }?.count?.toString() ?: getString(R.string.home_no_count)
         val text = when {
             stats == null -> getString(R.string.stats_none)
@@ -382,9 +443,9 @@ class MainActivity : AppCompatActivity() {
         if (!apply()) return
         toast(R.string.saved)
 
-        if (configureWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
-            WidgetUpdater.update(this)
-            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, configureWidgetId))
+        if (launchedForConfigure) {
+            WidgetUpdater.update(this, widgetId)
+            setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
             finish()
         }
     }
@@ -393,15 +454,20 @@ class MainActivity : AppCompatActivity() {
     private fun apply(): Boolean {
         if (!settings.isConfigured) return false.also { toast(R.string.error_not_logged_in) }
         if (folders.isEmpty()) return false.also { toast(R.string.error_no_folder) }
-        val filterChanged = folders != settings.folders || tags != settings.tags
-        settings.folders = folders
-        settings.tags = tags
-        settings.intervalMinutes = Settings.INTERVALS_MINUTES[intervalIndex]
-        settings.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshIndex]
+        val filterChanged = folders != config.folders || tags != config.tags || timeFilter != config.timeFilter
+        config.folders = folders
+        config.tags = tags
+        config.intervalMinutes = Settings.INTERVALS_MINUTES[intervalIndex]
+        config.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshIndex]
+        config.timeFilter = timeFilter
+        if (shape != config.shape) {
+            config.shape = shape
+            WidgetUpdater.update(this, widgetId)
+        }
 
-        if (filterChanged) PhotoState.reset(this)
+        if (filterChanged) state.reset()
         Scheduler.apply(this)
-        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
+        Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_REFRESH)
         return true
     }
 
@@ -413,11 +479,13 @@ class MainActivity : AppCompatActivity() {
         const val STATE_LOGIN_SERVER = "login_server"
         const val STATE_LOGIN_DEADLINE = "login_deadline"
         const val STATE_FOLDERS = "folders"
-        const val STATE_TAG_IDS = "tag_ids"
-        const val STATE_TAG_NAMES = "tag_names"
+        const val STATE_TAGS = "tags"
         const val STATE_INTERVAL = "interval"
         const val STATE_LIST_REFRESH = "list_refresh"
         const val STATE_SERVER = "server"
+        const val STATE_SHAPE = "shape"
+        const val STATE_DAYS = "days"
+        const val STATE_REPEAT = "repeat"
     }
 }
 

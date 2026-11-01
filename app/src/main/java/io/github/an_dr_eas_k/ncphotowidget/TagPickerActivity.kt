@@ -1,5 +1,6 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.LayoutInflater
@@ -16,8 +17,10 @@ import com.google.android.material.checkbox.MaterialCheckBox
 import com.google.android.material.progressindicator.LinearProgressIndicator
 
 /**
- * Chooses the Nextcloud tags a photo must all have. No tag selected means no tag filter. The choice
- * goes back to the caller and only takes effect once the settings are saved.
+ * Chooses the Nextcloud tags to filter by. Each tag cycles through three states: off; half, one of
+ * the alternatives of which a photo needs at least one; full, a tag every photo must have. No tag
+ * selected means no tag filter. The choice goes back to the caller and only takes effect once the
+ * settings are saved.
  */
 class TagPickerActivity : AppCompatActivity() {
     private lateinit var client: NextcloudClient
@@ -26,7 +29,7 @@ class TagPickerActivity : AppCompatActivity() {
     private lateinit var error: TextView
     private lateinit var retry: View
     private lateinit var summary: TextView
-    private val selected = linkedMapOf<Long, String>()
+    private val selected = linkedMapOf<Long, Tag>()
     private val adapter = TagAdapter()
     private var generation = 0
 
@@ -55,17 +58,15 @@ class TagPickerActivity : AppCompatActivity() {
             override fun handleOnBackPressed() = finish()
         })
 
-        val ids = savedInstanceState?.getLongArray(EXTRA_IDS) ?: intent.getLongArrayExtra(EXTRA_IDS) ?: LongArray(0)
-        val names = savedInstanceState?.getStringArray(EXTRA_NAMES) ?: intent.getStringArrayExtra(EXTRA_NAMES) ?: emptyArray()
-        ids.forEachIndexed { i, id -> selected[id] = names.getOrElse(i) { "" } }
+        val lines = savedInstanceState?.getStringArray(EXTRA_TAGS) ?: intent.getStringArrayExtra(EXTRA_TAGS) ?: emptyArray()
+        lines.mapNotNull { Tag.decode(it) }.forEach { selected[it.id] = it }
         showSelection()
         load()
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putLongArray(EXTRA_IDS, selected.keys.toLongArray())
-        outState.putStringArray(EXTRA_NAMES, selected.values.toTypedArray())
+        outState.putStringArray(EXTRA_TAGS, encodedSelection())
     }
 
     private fun load() {
@@ -90,26 +91,25 @@ class TagPickerActivity : AppCompatActivity() {
         }
     }
 
-    private fun toggle(tag: Tag, checked: Boolean) {
-        if (checked) selected[tag.id] = tag.name else selected.remove(tag.id)
+    /** Off, then half (an alternative), then full (required), then off again. */
+    private fun cycle(tag: Tag) {
+        val current = selected[tag.id]
+        when {
+            current == null -> selected[tag.id] = tag.copy(required = false)
+            !current.required -> selected[tag.id] = tag.copy(required = true)
+            else -> selected.remove(tag.id)
+        }
         showSelection()
     }
 
     private fun showSelection() {
-        summary.text = if (selected.isEmpty()) {
-            getString(R.string.tags_none_selected)
-        } else {
-            getString(R.string.tags_selected, selected.values.joinToString(", "))
-        }
+        summary.text = if (selected.isEmpty()) getString(R.string.tags_none_selected) else describeTags(this, selected.values)
     }
 
+    private fun encodedSelection() = selected.values.map { it.encode() }.toTypedArray()
+
     private fun finishWithChoice() {
-        setResult(
-            RESULT_OK,
-            Intent()
-                .putExtra(EXTRA_IDS, selected.keys.toLongArray())
-                .putExtra(EXTRA_NAMES, selected.values.toTypedArray()),
-        )
+        setResult(RESULT_OK, Intent().putExtra(EXTRA_TAGS, encodedSelection()))
         finish()
     }
 
@@ -129,10 +129,15 @@ class TagPickerActivity : AppCompatActivity() {
         override fun onBindViewHolder(holder: Holder, position: Int) {
             val tag = tags[position]
             holder.name.text = tag.name
-            holder.check.setOnCheckedChangeListener(null)
-            holder.check.isChecked = tag.id in selected
-            holder.check.setOnCheckedChangeListener { _, checked -> toggle(tag, checked) }
-            holder.itemView.setOnClickListener { holder.check.toggle() }
+            holder.check.checkedState = when (selected[tag.id]?.required) {
+                null -> MaterialCheckBox.STATE_UNCHECKED
+                false -> MaterialCheckBox.STATE_INDETERMINATE
+                true -> MaterialCheckBox.STATE_CHECKED
+            }
+            holder.itemView.setOnClickListener {
+                cycle(tag)
+                notifyItemChanged(holder.adapterPosition)
+            }
         }
 
         inner class Holder(view: View) : RecyclerView.ViewHolder(view) {
@@ -142,7 +147,14 @@ class TagPickerActivity : AppCompatActivity() {
     }
 
     companion object {
-        const val EXTRA_IDS = "tag_ids"
-        const val EXTRA_NAMES = "tag_names"
+        const val EXTRA_TAGS = "tags"
+
+        /** "Any of: a, b; all of: c" for the chosen tags. */
+        fun describeTags(context: Context, tags: Collection<Tag>): String = listOfNotNull(
+            tags.filter { !it.required }.takeIf { it.isNotEmpty() }
+                ?.let { context.getString(R.string.tags_any_of, it.joinToString(", ") { t -> t.name }) },
+            tags.filter { it.required }.takeIf { it.isNotEmpty() }
+                ?.let { context.getString(R.string.tags_all_of, it.joinToString(", ") { t -> t.name }) },
+        ).joinToString("\n")
     }
 }
