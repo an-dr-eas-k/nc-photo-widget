@@ -56,9 +56,6 @@ class MainActivity : AppCompatActivity() {
 
     // Login in progress: polled only while this screen is visible, as the system may block the
     // network of an app that sits in the background behind the browser.
-    private var pendingSession: LoginFlow.Session? = null
-    private var pendingServer = ""
-    private var pendingDeadline = 0L
     private var pollInFlight = false
     private val handler = Handler(Looper.getMainLooper())
     private val pollTask = Runnable { pollLogin() }
@@ -148,12 +145,6 @@ class MainActivity : AppCompatActivity() {
         refreshNow.setOnClickListener { refreshPhotoList() }
         saveButton.setOnClickListener { save() }
 
-        savedInstanceState?.getString(STATE_LOGIN_TOKEN)?.let { token ->
-            pendingSession = LoginFlow.Session("", savedInstanceState.getString(STATE_LOGIN_POLL_URL, ""), token)
-            pendingServer = savedInstanceState.getString(STATE_LOGIN_SERVER, "")
-            pendingDeadline = savedInstanceState.getLong(STATE_LOGIN_DEADLINE)
-            setAccountDetail(getString(R.string.status_waiting))
-        }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -166,12 +157,6 @@ class MainActivity : AppCompatActivity() {
         outState.putInt(STATE_SHAPE, shape.ordinal)
         outState.putInt(STATE_DAYS, timeFilter.days)
         outState.putBoolean(STATE_REPEAT, timeFilter.repeatYears)
-        pendingSession?.let {
-            outState.putString(STATE_LOGIN_TOKEN, it.token)
-            outState.putString(STATE_LOGIN_POLL_URL, it.pollUrl)
-            outState.putString(STATE_LOGIN_SERVER, pendingServer)
-            outState.putLong(STATE_LOGIN_DEADLINE, pendingDeadline)
-        }
     }
 
     override fun onResume() {
@@ -179,7 +164,7 @@ class MainActivity : AppCompatActivity() {
         if (!::workInfos.isInitialized) return
         // Scans run in the background worker; follow them while this screen is visible.
         workInfos.observeForever(workObserver)
-        if (pendingSession != null) pollLogin()
+        if (settings.pendingLogin != null) pollLogin()
     }
 
     override fun onPause() {
@@ -250,7 +235,9 @@ class MainActivity : AppCompatActivity() {
         renderRows()
     }
 
-    private fun loginStatusText() = if (settings.isConfigured) {
+    private fun loginStatusText() = if (settings.pendingLogin != null) {
+        getString(R.string.status_waiting)
+    } else if (settings.isConfigured) {
         getString(R.string.status_logged_in, settings.username)
     } else {
         getString(R.string.status_logged_out)
@@ -348,21 +335,24 @@ class MainActivity : AppCompatActivity() {
 
         inBackground({ LoginFlow.start(normalized) }) { result ->
             result.onSuccess { session ->
-                pendingSession = session
-                pendingServer = normalized
-                pendingDeadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
+                settings.pendingLogin =
+                    Settings.PendingLogin(session.pollUrl, session.token, normalized, System.currentTimeMillis() + LOGIN_TIMEOUT_MS)
+                // Also polls while this screen is not in front, e.g. after the browser was closed to the home screen.
+                LoginPollWorker.enqueue(this, delaySeconds = LOGIN_WORKER_DELAY_SECONDS)
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl)))
             }.onFailure { setAccountDetail(getString(R.string.status_failed, it.describe())) }
         }
     }
 
     private fun pollLogin() {
-        val session = pendingSession ?: return
-        if (System.currentTimeMillis() > pendingDeadline) {
-            pendingSession = null
+        val pending = settings.pendingLogin
+        // Gone when it ran out, or when the background job has finished the login already.
+        if (pending == null || System.currentTimeMillis() > pending.deadline) {
+            settings.pendingLogin = null
             setAccountDetail(loginStatusText())
             return
         }
+        val session = LoginFlow.Session("", pending.pollUrl, pending.token)
         if (pollInFlight) return
         pollInFlight = true
 
@@ -370,11 +360,8 @@ class MainActivity : AppCompatActivity() {
             pollInFlight = false
             val login = result.getOrNull()
             if (login != null) {
-                // Keep the address the user typed: the server-reported one may be an internal name.
-                settings.serverUrl = pendingServer
-                settings.username = login.username
-                settings.appPassword = login.appPassword
-                pendingSession = null
+                settings.completeLogin(pending, login)
+                Scheduler.apply(this)
                 setAccountDetail(loginStatusText())
             } else {
                 setAccountDetail(
@@ -490,10 +477,7 @@ class MainActivity : AppCompatActivity() {
     private companion object {
         const val LOGIN_TIMEOUT_MS = 10 * 60 * 1000L
         const val POLL_INTERVAL_MS = 2000L
-        const val STATE_LOGIN_TOKEN = "login_token"
-        const val STATE_LOGIN_POLL_URL = "login_poll_url"
-        const val STATE_LOGIN_SERVER = "login_server"
-        const val STATE_LOGIN_DEADLINE = "login_deadline"
+        const val LOGIN_WORKER_DELAY_SECONDS = 10L
         const val STATE_FOLDERS = "folders"
         const val STATE_TAGS = "tags"
         const val STATE_INTERVAL = "interval"

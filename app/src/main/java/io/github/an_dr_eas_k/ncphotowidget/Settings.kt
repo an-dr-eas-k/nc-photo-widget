@@ -38,6 +38,36 @@ class Settings(context: Context) {
         get() = prefs.getString("password", "") ?: ""
         set(v) = prefs.edit().putString("password", v).apply()
 
+    /** A login the user started in the browser and that is not yet finished; kept so it survives the screen. */
+    class PendingLogin(val pollUrl: String, val token: String, val server: String, val deadline: Long)
+
+    var pendingLogin: PendingLogin?
+        get() {
+            val token = prefs.getString("login_token", null) ?: return null
+            return PendingLogin(
+                prefs.getString("login_poll_url", "") ?: "", token,
+                prefs.getString("login_server", "") ?: "", prefs.getLong("login_deadline", 0),
+            )
+        }
+        set(v) {
+            val editor = prefs.edit()
+            if (v == null) {
+                editor.remove("login_token").remove("login_poll_url").remove("login_server").remove("login_deadline")
+            } else {
+                editor.putString("login_token", v.token).putString("login_poll_url", v.pollUrl)
+                    .putString("login_server", v.server).putLong("login_deadline", v.deadline)
+            }
+            editor.apply()
+        }
+
+    /** Stores the account of a finished login. The address is the one the user typed: the server's may be internal. */
+    fun completeLogin(pending: PendingLogin, login: LoginFlow.Result) {
+        prefs.edit()
+            .putString("server", pending.server).putString("user", login.username).putString("password", login.appPassword)
+            .remove("login_token").remove("login_poll_url").remove("login_server").remove("login_deadline")
+            .apply()
+    }
+
     var themeMode: Int
         get() = prefs.getInt("theme", THEME_SYSTEM)
         set(v) = prefs.edit().putInt("theme", v).apply()
