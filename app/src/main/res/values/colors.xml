@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="nc_background_light">#FFFFFF</color>
-    <color name="nc_background_dark">#171717</color>
+    <color name="brand_primary">#0082C9</color>
+    <color name="brand_primary_dark">#4DB3F0</color>
+    <color name="brand_secondary">#4A6572</color>
 </resources>

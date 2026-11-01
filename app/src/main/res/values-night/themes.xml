@@ -1,4 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.NC" parent="Theme.NC.Dark" />
+    <style name="Theme.NC" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/brand_primary_dark</item>
+        <item name="colorOnPrimary">#00344F</item>
+        <item name="colorPrimaryInverse">@color/brand_primary</item>
+        <item name="colorPrimaryContainer">#004A73</item>
+        <item name="colorOnPrimaryContainer">#CDE5FF</item>
+        <item name="colorSecondary">@color/brand_secondary</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:navigationBarColor">?attr/colorSurface</item>
+    </style>
 </resources>

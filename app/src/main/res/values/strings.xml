@@ -15,23 +15,53 @@
     <string name="status_waiting_error">Waiting for login… (%1$s)</string>
     <string name="status_failed">Login failed: %1$s</string>
 
-    <string name="label_folder">Photo folders (subfolders included)</string>
-    <string name="button_add_folder">Add folder</string>
-    <string name="button_remove">Remove</string>
+    <string name="row_folders">Folders</string>
+    <string name="row_tags">Tag filter</string>
+    <string name="row_time_span">Time span</string>
+    <string name="time_off">All photos, whenever taken</string>
+    <string name="time_last_days">Photos of the last %1$d days</string>
+    <string name="label_days">Days (0 = off)</string>
+    <string name="time_last_days_repeat">Photos of the last %1$d days, also in earlier years</string>
+    <string name="row_time_repeat">Repeat in earlier years</string>
+    <string name="time_repeat_detail">Also show photos taken in these days of every earlier year</string>
+    <string name="time_repeat_unavailable">Only for time spans of up to 365 days</string>
+    <string name="row_account">Account</string>
+    <string name="home_photos">photos in the widget</string>
+    <string name="home_connected">Connected to Nextcloud</string>
+    <string name="home_not_connected">Not logged in</string>
+    <string name="home_no_count">–</string>
+    <string name="folders_none">None selected</string>
+    <string name="tags_title">Tag filter</string>
+    <string name="tags_none_selected">No tag selected, so no tag filter. Tap a tag once for "any of" (half), twice for "all of" (full), a third time to clear it.</string>
+    <string name="tags_any_of">Any of: %1$s</string>
+    <string name="tags_all_of">All of: %1$s</string>
+    <string name="folders_title">Photo folders</string>
+    <string name="folders_back">Back</string>
+    <string name="folders_empty">No subfolders here</string>
+    <string name="folders_retry">Retry</string>
+    <string name="folders_done">Done</string>
+    <string name="folders_none_selected">Select the folders to use. Subfolders are included.</string>
+    <string name="folders_selected">Selected: %1$s</string>
+    <string name="folders_select">Select %1$s</string>
     <string name="error_no_folder">Add at least one folder</string>
+    <string name="label_tags">Only photos matching these tags (within the folders)</string>
+    <string name="tags_none">No tag filter</string>
+    <string name="error_no_tags">No tags found on the server</string>
+    <string name="error_tags_failed">Could not load tags: %1$s</string>
     <string name="label_list_refresh">Refresh the photo list</string>
-    <string name="button_refresh_now">Refresh photo list now</string>
+    <string name="button_refresh_now">Refresh list</string>
     <string name="stats_none">Photo list not synced yet</string>
     <string name="stats_scanning">Scanning folders…</string>
-    <string name="stats_scanning_progress">Scanning folders… %1$d folders, %2$d photos so far</string>
-    <string name="stats_format">Photos: %1$d\nLast sync: %2$s\nSync took: %3$s</string>
+    <string name="stats_scanning_duration">Scanning folders… %1$s</string>
+    <string name="stats_format">Last synced %2$s, took %3$s</string>
     <string name="stats_error">Last sync failed: %1$s</string>
-    <string name="error_unsaved_folders">Save the folder changes first</string>
-    <string name="folder_select">Select this folder</string>
-    <string name="folder_up">.. (up)</string>
     <string name="error_list_failed">Could not load folders: %1$s</string>
     <string name="label_interval">Change picture every</string>
     <string name="button_save">Save and apply</string>
+    <string name="widget_failed">The last request failed</string>
+    <string name="filter_hint">Pictures with \"snapseed\" in the file name are shown without a filter, as they already have a look.</string>
+    <string name="label_photo_filter">Picture filter</string>
+    <string name="label_widget_style">Widget style</string>
     <string name="label_appearance">Appearance</string>
     <string name="theme_system">System</string>
     <string name="theme_light">Light</string>
@@ -40,6 +70,44 @@
     <string name="error_not_logged_in">Log in first</string>
     <string name="error_bad_url">Enter a valid server address</string>
     <string name="help_widget">Tap the left edge of the widget for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app. To open these settings again, long-press the widget and tap its settings button.</string>
+
+    <string-array name="filter_labels">
+        <item>None</item>
+        <item>Grayscale</item>
+        <item>Noir</item>
+        <item>Sepia</item>
+        <item>Vivid</item>
+        <item>Faded</item>
+        <item>Warm</item>
+        <item>Cool</item>
+        <item>Faded film (teal and warm)</item>
+    </string-array>
+
+    <string-array name="shape_labels">
+        <item>Rounded corners</item>
+        <item>Square</item>
+        <item>Circle</item>
+        <item>Oval</item>
+        <item>Pill</item>
+        <item>Cut corners</item>
+    </string-array>
+
+    <string-array name="theme_labels">
+        <item>System</item>
+        <item>Light</item>
+        <item>Dark</item>
+    </string-array>
+
+    <string-array name="interval_short_labels">
+        <item>15 min</item>
+        <item>30 min</item>
+        <item>1 h</item>
+        <item>3 h</item>
+        <item>6 h</item>
+        <item>12 h</item>
+        <item>24 h</item>
+        <item>Manual</item>
+    </string-array>
 
     <string-array name="interval_labels">
         <item>15 minutes</item>

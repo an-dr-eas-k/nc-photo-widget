@@ -4,13 +4,29 @@ import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
+import android.os.Bundle
 
 class PhotoWidgetProvider : AppWidgetProvider() {
 
     override fun onUpdate(context: Context, manager: AppWidgetManager, appWidgetIds: IntArray) {
-        WidgetUpdater.update(context)
-        if (!WidgetUpdater.hasImage(context) && Settings(context).isConfigured) {
-            Scheduler.enqueue(context, PhotoWorker.ACTION_NEXT)
+        WidgetConfig.migrateLegacy(context)
+        for (id in appWidgetIds) {
+            WidgetUpdater.update(context, id)
+            if (!WidgetUpdater.hasImage(context, id) && Settings(context).isConfigured) {
+                Scheduler.enqueue(context, id, PhotoWorker.ACTION_NEXT)
+            }
+        }
+    }
+
+    // The picture is cut to the widget's size, so it is redrawn when the widget is resized.
+    override fun onAppWidgetOptionsChanged(context: Context, manager: AppWidgetManager, appWidgetId: Int, newOptions: Bundle) {
+        WidgetUpdater.update(context, appWidgetId)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        for (id in appWidgetIds) {
+            Scheduler.cancel(context, id)
+            WidgetConfig.delete(context, id)
         }
     }
 
@@ -18,12 +34,15 @@ class PhotoWidgetProvider : AppWidgetProvider() {
         super.onReceive(context, intent)
         when (intent.action) {
             PhotoWorker.ACTION_NEXT, PhotoWorker.ACTION_PREV -> {
+                val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (id == AppWidgetManager.INVALID_APPWIDGET_ID) return
                 // Immediate feedback; the worker clears it once the picture is shown.
-                WidgetUpdater.showLoading(context)
-                Scheduler.enqueue(context, intent.action!!)
+                WidgetUpdater.showLoading(context, id)
+                Scheduler.enqueue(context, id, intent.action!!)
             }
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
-                WidgetUpdater.update(context)
+                WidgetConfig.migrateLegacy(context)
+                WidgetUpdater.updateAll(context)
                 Scheduler.apply(context)
             }
         }

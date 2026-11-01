@@ -15,6 +15,10 @@ import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.InputStream
+import java.time.ZoneId
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
 import java.util.concurrent.TimeUnit
 
 class HttpException(val code: Int) : IOException("HTTP $code")
@@ -23,19 +27,37 @@ private val http = OkHttpClient.Builder()
     .callTimeout(60, TimeUnit.SECONDS)
     .build()
 
+// Scans of large libraries can take long; only a server that sends nothing for two minutes is given up on.
+private val scanHttp = http.newBuilder()
+    .callTimeout(0, TimeUnit.SECONDS)
+    .readTimeout(120, TimeUnit.SECONDS)
+    .build()
+
+// A picture is a single small download; a slow server should not hold the widget up for long.
+private val previewHttp = http.newBuilder()
+    .connectTimeout(10, TimeUnit.SECONDS)
+    .callTimeout(25, TimeUnit.SECONDS)
+    .build()
+
 private const val USER_AGENT = "NextcloudPhotoWidget"
 
-private fun <T> call(request: Request.Builder, read: (Response) -> T): T =
-    http.newCall(request.header("User-Agent", USER_AGENT).build()).execute().use { response ->
+private fun <T> call(request: Request.Builder, client: OkHttpClient = http, tag: Any? = null, read: (Response) -> T): T =
+    client.newCall(request.header("User-Agent", USER_AGENT).tag(tag).build()).execute().use { response ->
         if (!response.isSuccessful) throw HttpException(response.code)
         read(response)
     }
 
 class NextcloudClient(private val settings: Settings) {
+    /** Aborts this client's requests that are still running, e.g. when the job using them is stopped. */
+    fun cancel() {
+        val dispatcher = http.dispatcher
+        (dispatcher.runningCalls() + dispatcher.queuedCalls()).filter { it.request().tag() === this }.forEach { it.cancel() }
+    }
+
     private val auth = Credentials.basic(settings.username, settings.appPassword)
     private val base = settings.serverUrl.toHttpUrl()
 
-    private class Entry(val href: String, val isDir: Boolean, val contentType: String, val fileId: Long)
+    private class Entry(val href: String, val isDir: Boolean, val contentType: String, val fileId: Long, val day: Int)
 
     private fun folderUrl(folder: String): HttpUrl {
         val url = base.newBuilder()
@@ -55,14 +77,26 @@ class NextcloudClient(private val settings: Settings) {
     /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
     fun listImageIds(
         folders: List<String>,
+        tags: List<Tag> = emptyList(),
+        wanted: (day: Int) -> Boolean = { true },
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
+        preFiltered: MutableSet<Long>? = null,
     ): LongArray {
-        // A set, so overlapping folders do not count a photo twice.
+        // A set, so overlapping folders do not count a photo twice. Only photos that pass [wanted] get in.
         val ids = LinkedHashSet<Long>()
         var notified = false
         var scanned = 0
+        if (tags.isNotEmpty()) {
+            listTaggedImageIds(folders, tags).filter { wanted(it.day) }.forEach {
+                ids.add(it.fileId)
+                if (isSnapseed(it.href)) preFiltered?.add(it.fileId)
+            }
+            onProgress?.invoke(1, ids)
+            if (ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
+            return ids.toLongArray()
+        }
         val queue = ArrayDeque<HttpUrl>()
         folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
@@ -72,7 +106,10 @@ class NextcloudClient(private val settings: Settings) {
                 if (e.isDir) {
                     url.resolve(e.href)?.let { queue.add(it) }
                 } else if (e.contentType.startsWith("image/") && e.fileId > 0) {
-                    ids.add(e.fileId)
+                    if (wanted(e.day)) {
+                        ids.add(e.fileId)
+                        if (isSnapseed(e.href)) preFiltered?.add(e.fileId)
+                    }
                     if (!notified && ids.size >= EARLY_POOL) {
                         notified = true
                         onFirstImage?.invoke(ids.random())
@@ -86,6 +123,76 @@ class NextcloudClient(private val settings: Settings) {
         return ids.toLongArray()
     }
 
+    /** All system tags the user can see, sorted case-insensitively. */
+    fun listTags(): List<Tag> {
+        val url = base.newBuilder().addPathSegments("remote.php/dav/systemtags/").build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth)
+            .header("Depth", "1")
+            .method("PROPFIND", TAGS_BODY.toRequestBody("application/xml".toMediaType()))
+        val tags = call(request, scanHttp, this) { response ->
+            val parser = Xml.newPullParser()
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            parser.setInput(response.body!!.byteStream(), null)
+            val found = ArrayList<Tag>()
+            var id = -1L
+            var name = ""
+            var visible = true
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "response" -> { id = -1L; name = ""; visible = true }
+                        "id" -> id = parser.nextText().toLongOrNull() ?: -1L
+                        "display-name" -> name = parser.nextText()
+                        "user-visible" -> visible = parser.nextText() != "false"
+                    }
+                } else if (event == XmlPullParser.END_TAG && parser.name == "response" && id >= 0 && visible) {
+                    found.add(Tag(id, name))
+                }
+                event = parser.next()
+            }
+            found
+        }
+        return tags.sortedBy { it.name.lowercase() }
+    }
+
+    /**
+     * Images that have every required tag and, when there are alternatives, at least one of them.
+     * The server only ANDs tags, so each alternative is a search of its own and the results are joined.
+     */
+    private fun listTaggedImageIds(folders: List<String>, tags: List<Tag>): List<Entry> {
+        val required = tags.filter { it.required }
+        val alternatives = tags.filter { !it.required }
+        if (alternatives.isEmpty()) return searchTagged(folders, required)
+        return alternatives.flatMap { searchTagged(folders, required + it) }.distinctBy { it.fileId }
+    }
+
+    /** Images carrying all [tags] (a server-side search over all files) that lie inside one of [folders]. */
+    private fun searchTagged(folders: List<String>, tags: List<Tag>): List<Entry> {
+        val rules = tags.joinToString("") { "<oc:systemtag>${it.id}</oc:systemtag>" }
+        val body = """<?xml version="1.0"?>
+<oc:filter-files xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/><d:getlastmodified/><nc:metadata-photos-original_date_time/></d:prop>
+  <oc:filter-rules>$rules</oc:filter-rules>
+</oc:filter-files>"""
+        val url = base.newBuilder()
+            .addPathSegments("remote.php/dav/files")
+            .addPathSegment(settings.username)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth)
+            .method("REPORT", body.toRequestBody("application/xml".toMediaType()))
+        val prefixes = folders.map { Uri.decode(folderUrl(it).encodedPath).trimEnd('/') + "/" }
+        return call(request, scanHttp, this) { parseMultiStatus(it.body!!.byteStream()) }
+            .filter { e ->
+                !e.isDir && e.contentType.startsWith("image/") && e.fileId > 0 &&
+                    Uri.decode(e.href).let { href -> prefixes.any { href.startsWith(it) } }
+            }
+    }
+
     private fun propfind(url: HttpUrl): List<Entry> {
         val request = Request.Builder()
             .url(url)
@@ -93,7 +200,7 @@ class NextcloudClient(private val settings: Settings) {
             .header("Depth", "1")
             .method("PROPFIND", PROPFIND_BODY.toRequestBody("application/xml".toMediaType()))
         // The first response element is the requested folder itself.
-        return call(request) { parseMultiStatus(it.body!!.byteStream()).drop(1) }
+        return call(request, scanHttp, this) { parseMultiStatus(it.body!!.byteStream()).drop(1) }
     }
 
     private fun parseMultiStatus(stream: InputStream): List<Entry> {
@@ -106,18 +213,23 @@ class NextcloudClient(private val settings: Settings) {
         var isDir = false
         var type = ""
         var fileId = -1L
+        var taken = NO_DAY
+        var modified = NO_DAY
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
                 when (parser.name) {
-                    "response" -> { href = ""; isDir = false; type = ""; fileId = -1L }
+                    "response" -> { href = ""; isDir = false; type = ""; fileId = -1L; taken = NO_DAY; modified = NO_DAY }
                     "href" -> href = parser.nextText()
                     "getcontenttype" -> type = parser.nextText()
                     "fileid" -> fileId = parser.nextText().toLongOrNull() ?: -1L
                     "collection" -> isDir = true
+                    "getlastmodified" -> modified = httpDay(parser.nextText())
+                    "metadata-photos-original_date_time" -> taken = unixDay(parser.nextText())
                 }
             } else if (event == XmlPullParser.END_TAG && parser.name == "response") {
-                entries.add(Entry(href, isDir, type, fileId))
+                // The date taken is what the Photos app records; the file date is the fallback.
+                entries.add(Entry(href, isDir, type, fileId, if (taken != NO_DAY) taken else modified))
             }
             event = parser.next()
         }
@@ -134,14 +246,34 @@ class NextcloudClient(private val settings: Settings) {
             .addQueryParameter("a", "true")
             .addQueryParameter("forceIcon", "0")
             .build()
-        return call(Request.Builder().url(url).header("Authorization", auth)) { it.body!!.bytes() }
+        return call(Request.Builder().url(url).header("Authorization", auth), previewHttp, this) { it.body!!.bytes() }
     }
+
+    /** Pictures saved by Snapseed already carry a look of their own, so they are shown without our filter. */
+    private fun isSnapseed(href: String) =
+        Uri.decode(href.trimEnd('/').substringAfterLast('/')).contains("snapseed", ignoreCase = true)
+
+    /** Day of an HTTP date such as "Mon, 02 Jan 2023 10:00:00 GMT", in the local time zone. */
+    private fun httpDay(text: String): Int = try {
+        ZonedDateTime.parse(text.trim(), DateTimeFormatter.RFC_1123_DATE_TIME)
+            .withZoneSameInstant(ZoneId.systemDefault()).toLocalDate().toEpochDay().toInt()
+    } catch (e: DateTimeParseException) {
+        NO_DAY
+    }
+
+    /** Day of a Unix time in seconds. The Photos app stores the clock time of the picture as if it were UTC. */
+    private fun unixDay(text: String): Int =
+        text.trim().toLongOrNull()?.let { Math.floorDiv(it, 86400L).toInt() } ?: NO_DAY
 
     private companion object {
         const val EARLY_POOL = 50
-        const val PROPFIND_BODY = """<?xml version="1.0"?>
+        const val TAGS_BODY = """<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
-  <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/></d:prop>
+  <d:prop><oc:id/><oc:display-name/><oc:user-visible/></d:prop>
+</d:propfind>"""
+        const val PROPFIND_BODY = """<?xml version="1.0"?>
+<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/><d:getlastmodified/><nc:metadata-photos-original_date_time/></d:prop>
 </d:propfind>"""
     }
 }

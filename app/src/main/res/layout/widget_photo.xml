@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- The id and clipToOutline tell the launcher (Android 12+) not to round this widget's corners itself:
+     the picture is already cut to the chosen shape. -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@android:id/background"
+    android:clipToOutline="true"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="#222222">
+    android:layout_height="match_parent">
 
     <ImageView
         android:id="@+id/image"
@@ -29,6 +32,16 @@
         android:layout_gravity="top|end"
         android:layout_margin="8dp"
         android:indeterminate="true"
+        android:visibility="gone" />
+
+    <ImageView
+        android:id="@+id/failed"
+        android:layout_width="28dp"
+        android:layout_height="28dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="8dp"
+        android:contentDescription="@string/widget_failed"
+        android:src="@drawable/ic_widget_error"
         android:visibility="gone" />
 
     <LinearLayout

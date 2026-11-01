@@ -1,5 +1,6 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
+import android.appwidget.AppWidgetManager
 import android.content.Context
 import android.os.SystemClock
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -17,170 +18,203 @@ import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
+    @Volatile
+    private var client: NextcloudClient? = null
+
+    // A newer tap replaces this job: its running download is dropped, not waited for.
+    override fun onStopped() {
+        client?.cancel()
+    }
 
     override fun doWork(): Result {
         val ctx = applicationContext
+        WidgetConfig.migrateLegacy(ctx)
+        val widgetId = inputData.getInt(KEY_WIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+        if (!WidgetUpdater.exists(ctx, widgetId)) return Result.success()
         val settings = Settings(ctx)
-        if (!settings.isConfigured || settings.folders.isEmpty()) {
-            WidgetUpdater.update(ctx)
+        val config = WidgetConfig(ctx, widgetId)
+        val state = PhotoState(ctx, widgetId)
+        if (!settings.isConfigured || config.folders.isEmpty()) {
+            WidgetUpdater.update(ctx, widgetId)
             return Result.success()
         }
 
         val action = inputData.getString(KEY_ACTION) ?: ACTION_NEXT
-        val client = NextcloudClient(settings)
-        if (action == ACTION_REFRESH) return scan(client, settings)
+        val client = NextcloudClient(settings).also { this.client = it }
+        if (action == ACTION_REFRESH) return scan(widgetId, client, config, state)
 
-        val backup = PhotoState.backup(ctx)
+        val backup = state.backup()
+        var retrying = false
         try {
             repeat(3) {
-                val id = if (action == ACTION_PREV) {
-                    PhotoState.previous(ctx)
+                val unfinished = if (action == ACTION_PREV) null else state.pending()
+                val id = if (unfinished != null) {
+                    // The last download never finished (e.g. the server hung): the tap restarts it.
+                    retrying = true
+                    unfinished
+                } else if (action == ACTION_PREV) {
+                    state.previous()
                 } else {
                     // Never wait for a scan here: it runs as its own job, and known photos are used meanwhile.
-                    if (PhotoState.needsRefresh(ctx, settings.listRefreshHours)) Scheduler.scan(ctx, restart = false)
-                    val ids = PhotoState.knownIds(ctx)
+                    if (state.needsRefresh(config.listRefreshHours)) Scheduler.scan(ctx, widgetId, restart = false)
+                    val ids = state.knownIds()
                     if (ids.isEmpty()) {
                         // Before the first photo is found, the scan itself puts it on the widget.
-                        if (PhotoState.hasScanned(ctx)) WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
+                        if (state.hasScanned()) WidgetUpdater.update(ctx, widgetId, ctx.getString(R.string.widget_empty))
                         return Result.success()
                     }
-                    PhotoState.next(ctx, ids)
+                    state.next(ids)
                 }
                 if (id == null) {
-                    WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
+                    WidgetUpdater.update(ctx, widgetId, ctx.getString(R.string.widget_empty))
                     return Result.success()
                 }
                 try {
-                    load(client, id)
-                    WidgetUpdater.update(ctx, loading = moreQueued())
-                    fillBuffer(client)
+                    load(widgetId, client, state, id)
+                    WidgetUpdater.update(ctx, widgetId, loading = moreQueued(widgetId))
+                    fillBuffer(widgetId, client, state)
                     return Result.success()
                 } catch (e: HttpException) {
                     if (e.code != 404) throw e
-                    PhotoState.dropCurrent(ctx)
+                    state.dropCurrent()
                 }
             }
         } catch (e: Exception) {
-            // Keep showing the old picture; the next scheduled run tries again.
-            PhotoState.restore(ctx, backup)
+            // A replaced job leaves the widget to its successor.
+            if (isStopped) return Result.success()
+            // Keep showing the old picture. A photo that fails twice is given up, so the next tap moves on.
+            if (retrying) state.dropCurrent() else state.restore(backup)
+            state.setFailed(true)
         }
-        WidgetUpdater.update(ctx, loading = moreQueued())
+        WidgetUpdater.update(ctx, widgetId, loading = moreQueued(widgetId))
         return Result.success()
     }
 
     /** Rescans the folders; shows a photo early only when there was no list to pick from. */
-    private fun scan(client: NextcloudClient, settings: Settings): Result {
+    private fun scan(widgetId: Int, client: NextcloudClient, config: WidgetConfig, state: PhotoState): Result {
         val ctx = applicationContext
-        val wasEmpty = !PhotoState.hasList(ctx)
+        val wasEmpty = !state.hasList()
         var shownEarly = false
         val showEarly: (Long) -> Unit = { first ->
             try {
-                load(client, first)
-                PhotoState.show(ctx, first)
-                WidgetUpdater.update(ctx)
+                load(widgetId, client, state, first)
+                state.show(first)
+                WidgetUpdater.update(ctx, widgetId)
                 shownEarly = true
             } catch (e: IOException) {
                 // The scan continues; a later tap or tick retries.
             }
         }
+        // The settings screen shows how long this scan has been running and how many photos it found.
+        val scanStart = System.currentTimeMillis()
+        setProgressAsync(workDataOf(PROGRESS_START to scanStart, PROGRESS_PHOTOS to 0))
         var lastProgress = 0L
-        val onProgress: (Int, Int) -> Unit = { folders, photos ->
+        val onProgress: (Int, Int) -> Unit = { _, photos ->
             val now = SystemClock.elapsedRealtime()
             if (now - lastProgress >= PROGRESS_INTERVAL_MS) {
                 lastProgress = now
-                setProgressAsync(workDataOf(PROGRESS_FOLDERS to folders, PROGRESS_PHOTOS to photos))
+                setProgressAsync(workDataOf(PROGRESS_START to scanStart, PROGRESS_PHOTOS to photos))
             }
         }
         try {
-            val ids = PhotoState.refreshList(
-                ctx, client, settings.folders, if (wasEmpty) showEarly else null, onProgress, { isStopped },
+            val ids = state.refreshList(
+                client, config.folders, config.tags, if (wasEmpty) showEarly else null, onProgress, { isStopped },
             )
             if (wasEmpty && !shownEarly) {
-                if (ids.isEmpty()) WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))
-                else Scheduler.enqueue(ctx, ACTION_NEXT)
+                if (ids.isEmpty()) WidgetUpdater.update(ctx, widgetId, ctx.getString(R.string.widget_empty))
+                else Scheduler.enqueue(ctx, widgetId, ACTION_NEXT)
             }
-            fillBuffer(client)
+            fillBuffer(widgetId, client, state)
         } catch (e: Exception) {
             // Recorded for the settings screen; the previous list stays in use.
-            if (wasEmpty && !shownEarly) WidgetUpdater.update(ctx)
+            if (wasEmpty && !shownEarly) WidgetUpdater.update(ctx, widgetId)
         }
         return Result.success()
     }
 
     /** Further taps are waiting behind this run, so the widget should keep showing that it is busy. */
-    private fun moreQueued(): Boolean = try {
-        WorkManager.getInstance(applicationContext).getWorkInfosForUniqueWork(Scheduler.ON_DEMAND).get()
+    private fun moreQueued(widgetId: Int): Boolean = try {
+        WorkManager.getInstance(applicationContext).getWorkInfosForUniqueWork(Scheduler.onDemandName(widgetId)).get()
             .any { it.id != id && (it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED) }
     } catch (e: Exception) {
         false
     }
 
     /** Makes [id] the widget image, from the buffer when possible. */
-    private fun load(client: NextcloudClient, id: Long) {
+    private fun load(widgetId: Int, client: NextcloudClient, state: PhotoState, id: Long) {
         val ctx = applicationContext
-        if (WidgetUpdater.showBuffered(ctx, id)) return
-        WidgetUpdater.showLoading(ctx)
-        val bytes = client.fetchPreview(id)
-        WidgetUpdater.buffer(ctx, id, bytes)
-        WidgetUpdater.saveImage(ctx, bytes)
+        if (!WidgetUpdater.showBuffered(ctx, widgetId, id)) {
+            WidgetUpdater.showLoading(ctx, widgetId)
+            val bytes = client.fetchPreview(id)
+            WidgetUpdater.buffer(ctx, widgetId, id, bytes)
+            WidgetUpdater.saveImage(ctx, widgetId, bytes)
+        }
+        state.markShown(id, state.isPreFiltered(id))
     }
 
-    /** Keeps the pictures on both sides of the current one downloaded, so taps switch without waiting. */
-    private fun fillBuffer(client: NextcloudClient) {
+    /**
+     * Keeps the picture of every photo in the history, so walking back and forth needs no network,
+     * plus the next one, so the next tap switches without waiting. The oldest ones go as the history slides.
+     */
+    private fun fillBuffer(widgetId: Int, client: NextcloudClient, state: PhotoState) {
         val ctx = applicationContext
-        val (previous, current, next) = PhotoState.neighbors(ctx)
-        for (id in listOfNotNull(previous, next)) {
-            if (WidgetUpdater.isBuffered(ctx, id)) continue
+        val next = state.neighbors().third
+        if (next != null && !WidgetUpdater.isBuffered(ctx, widgetId, next) && !isStopped) {
             try {
-                WidgetUpdater.buffer(ctx, id, client.fetchPreview(id))
+                WidgetUpdater.buffer(ctx, widgetId, next, client.fetchPreview(next))
             } catch (e: Exception) {
                 // Not buffered: that tap downloads its picture instead.
             }
         }
-        WidgetUpdater.trimBuffer(ctx, setOfNotNull(previous, current, next))
+        if (!isStopped) WidgetUpdater.trimBuffer(ctx, widgetId, state.historyIds().toSet() + listOfNotNull(next))
     }
 
     companion object {
         const val KEY_ACTION = "action"
+        const val KEY_WIDGET_ID = "widget_id"
         const val ACTION_NEXT = "io.github.an_dr_eas_k.ncphotowidget.NEXT"
         const val ACTION_PREV = "io.github.an_dr_eas_k.ncphotowidget.PREV"
         /** Rescans the folders regardless of the list age. */
         const val ACTION_REFRESH = "io.github.an_dr_eas_k.ncphotowidget.REFRESH"
-        const val PROGRESS_FOLDERS = "folders"
+        /** Progress of a running scan: when it started, in epoch milliseconds. */
+        const val PROGRESS_START = "scan_start"
         const val PROGRESS_PHOTOS = "photos"
         private const val PROGRESS_INTERVAL_MS = 500L
     }
 }
 
 object Scheduler {
-    private const val PERIODIC = "cycle"
-    const val ON_DEMAND = "on-demand"
-    const val SCAN = "scan"
     private const val KEEP_ALIVE = "keep-alive"
+
+    fun onDemandName(widgetId: Int) = "on-demand-$widgetId"
+    fun scanName(widgetId: Int) = "scan-$widgetId"
+    private fun cycleName(widgetId: Int) = "cycle-$widgetId"
 
     /** WorkManager cannot repeat faster than this; shorter intervals saved by version 1.0 are raised to it. */
     private const val MIN_PERIODIC_MINUTES = 15
 
     private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
 
-    private fun request(action: String) = OneTimeWorkRequestBuilder<PhotoWorker>()
-        .setConstraints(network)
-        .setInputData(workDataOf(PhotoWorker.KEY_ACTION to action))
+    // Taps wait for no network: offline they fail at once, instead of leaving the spinner up.
+    private fun request(widgetId: Int, action: String) = OneTimeWorkRequestBuilder<PhotoWorker>()
+        .apply { if (action == PhotoWorker.ACTION_REFRESH) setConstraints(network) }
+        .setInputData(workDataOf(PhotoWorker.KEY_ACTION to action, PhotoWorker.KEY_WIDGET_ID to widgetId))
         .addTag(action)
         .build()
 
-    fun enqueue(c: Context, action: String) {
-        if (action == PhotoWorker.ACTION_REFRESH) return scan(c, restart = true)
+    fun enqueue(c: Context, widgetId: Int, action: String) {
+        if (action == PhotoWorker.ACTION_REFRESH) return scan(c, widgetId, restart = true)
         keepAlive(c)
-        WorkManager.getInstance(c).enqueueUniqueWork(ON_DEMAND, ExistingWorkPolicy.APPEND_OR_REPLACE, request(action))
+        WorkManager.getInstance(c)
+            .enqueueUniqueWork(onDemandName(widgetId), ExistingWorkPolicy.REPLACE, request(widgetId, action))
     }
 
     /** Scans run apart from taps, so a long scan never holds up the next picture. */
-    fun scan(c: Context, restart: Boolean) {
+    fun scan(c: Context, widgetId: Int, restart: Boolean) {
         keepAlive(c)
         // Restarting also stops a scan of folders that may no longer be selected.
         val policy = if (restart) ExistingWorkPolicy.REPLACE else ExistingWorkPolicy.KEEP
-        WorkManager.getInstance(c).enqueueUniqueWork(SCAN, policy, request(PhotoWorker.ACTION_REFRESH))
+        WorkManager.getInstance(c).enqueueUniqueWork(scanName(widgetId), policy, request(widgetId, PhotoWorker.ACTION_REFRESH))
     }
 
     // WorkManager toggles a manifest component whenever no work is pending; that package change
@@ -192,26 +226,37 @@ object Scheduler {
         WorkManager.getInstance(c).enqueueUniqueWork(KEEP_ALIVE, ExistingWorkPolicy.KEEP, request)
     }
 
-    /** Runs the cycle only while at least one widget exists. */
+    /** Stops everything a deleted widget had scheduled. */
+    fun cancel(c: Context, widgetId: Int) {
+        val wm = WorkManager.getInstance(c)
+        wm.cancelUniqueWork(cycleName(widgetId))
+        wm.cancelUniqueWork(onDemandName(widgetId))
+        wm.cancelUniqueWork(scanName(widgetId))
+    }
+
+    /** Runs each widget's cycle, and only while at least one widget exists. */
     fun apply(c: Context) {
         val wm = WorkManager.getInstance(c)
-        val settings = Settings(c)
-        if (!settings.isConfigured || !WidgetUpdater.hasWidgets(c)) {
-            wm.cancelUniqueWork(PERIODIC)
+        val ids = WidgetUpdater.widgetIds(c)
+        if (!Settings(c).isConfigured || ids.isEmpty()) {
+            ids.forEach { wm.cancelUniqueWork(cycleName(it)) }
             wm.cancelUniqueWork(KEEP_ALIVE)
             return
         }
         keepAlive(c)
-        if (settings.intervalMinutes == Settings.INTERVAL_MANUAL) {
-            wm.cancelUniqueWork(PERIODIC)
-            return
+        for (id in ids) {
+            val interval = WidgetConfig(c, id).intervalMinutes
+            if (interval == Settings.INTERVAL_MANUAL) {
+                wm.cancelUniqueWork(cycleName(id))
+                continue
+            }
+            val minutes = interval.coerceAtLeast(MIN_PERIODIC_MINUTES).toLong()
+            val request = PeriodicWorkRequestBuilder<PhotoWorker>(minutes, TimeUnit.MINUTES)
+                .setInitialDelay(minutes, TimeUnit.MINUTES)
+                .setConstraints(network)
+                .setInputData(workDataOf(PhotoWorker.KEY_ACTION to PhotoWorker.ACTION_NEXT, PhotoWorker.KEY_WIDGET_ID to id))
+                .build()
+            wm.enqueueUniquePeriodicWork(cycleName(id), ExistingPeriodicWorkPolicy.UPDATE, request)
         }
-        val minutes = settings.intervalMinutes.coerceAtLeast(MIN_PERIODIC_MINUTES).toLong()
-        val request = PeriodicWorkRequestBuilder<PhotoWorker>(minutes, TimeUnit.MINUTES)
-            .setInitialDelay(minutes, TimeUnit.MINUTES)
-            .setConstraints(network)
-            .setInputData(workDataOf(PhotoWorker.KEY_ACTION to PhotoWorker.ACTION_NEXT))
-            .build()
-        wm.enqueueUniquePeriodicWork(PERIODIC, ExistingPeriodicWorkPolicy.UPDATE, request)
     }
 }
