@@ -82,13 +82,17 @@ class NextcloudClient(private val settings: Settings) {
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
+        preFiltered: MutableSet<Long>? = null,
     ): LongArray {
         // A set, so overlapping folders do not count a photo twice. Only photos that pass [wanted] get in.
         val ids = LinkedHashSet<Long>()
         var notified = false
         var scanned = 0
         if (tags.isNotEmpty()) {
-            listTaggedImageIds(folders, tags).filter { wanted(it.day) }.forEach { ids.add(it.fileId) }
+            listTaggedImageIds(folders, tags).filter { wanted(it.day) }.forEach {
+                ids.add(it.fileId)
+                if (isSnapseed(it.href)) preFiltered?.add(it.fileId)
+            }
             onProgress?.invoke(1, ids)
             if (ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
             return ids.toLongArray()
@@ -102,7 +106,10 @@ class NextcloudClient(private val settings: Settings) {
                 if (e.isDir) {
                     url.resolve(e.href)?.let { queue.add(it) }
                 } else if (e.contentType.startsWith("image/") && e.fileId > 0) {
-                    if (wanted(e.day)) ids.add(e.fileId)
+                    if (wanted(e.day)) {
+                        ids.add(e.fileId)
+                        if (isSnapseed(e.href)) preFiltered?.add(e.fileId)
+                    }
                     if (!notified && ids.size >= EARLY_POOL) {
                         notified = true
                         onFirstImage?.invoke(ids.random())
@@ -241,6 +248,10 @@ class NextcloudClient(private val settings: Settings) {
             .build()
         return call(Request.Builder().url(url).header("Authorization", auth), previewHttp, this) { it.body!!.bytes() }
     }
+
+    /** Pictures saved by Snapseed already carry a look of their own, so they are shown without our filter. */
+    private fun isSnapseed(href: String) =
+        Uri.decode(href.trimEnd('/').substringAfterLast('/')).contains("snapseed", ignoreCase = true)
 
     /** Day of an HTTP date such as "Mon, 02 Jan 2023 10:00:00 GMT", in the local time zone. */
     private fun httpDay(text: String): Int = try {

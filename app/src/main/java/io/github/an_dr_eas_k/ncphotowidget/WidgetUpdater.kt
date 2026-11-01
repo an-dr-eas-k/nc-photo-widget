@@ -70,7 +70,8 @@ object WidgetUpdater {
         val text = message ?: if (bitmap == null) c.getString(placeholder) else null
 
         val manager = AppWidgetManager.getInstance(c)
-        val image = shaped(c, bitmap, config.shape, manager.getAppWidgetOptions(widgetId))
+        val filter = if (PhotoState(c, widgetId).shownIsPlain()) PhotoFilter.NONE else config.filter
+        val image = shaped(c, bitmap, config.shape, filter, manager.getAppWidgetOptions(widgetId))
         manager.updateAppWidget(widgetId, views(c, widgetId, image, text, loading, PhotoState(c, widgetId).failed()))
     }
 
@@ -105,7 +106,7 @@ object WidgetUpdater {
     }
 
     /** The picture cropped to fill the widget and cut to [shape]; transparent outside of it. */
-    private fun shaped(c: Context, picture: Bitmap?, shape: WidgetShape, options: Bundle): Bitmap {
+    private fun shaped(c: Context, picture: Bitmap?, shape: WidgetShape, filter: PhotoFilter, options: Bundle): Bitmap {
         val density = c.resources.displayMetrics.density
         val portrait = c.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
         fun dp(key: String) = options.getInt(key, 0).takeIf { it > 0 } ?: DEFAULT_SIZE_DP
@@ -119,6 +120,7 @@ object WidgetUpdater {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         if (picture != null) {
             val fit = maxOf(w.toFloat() / picture.width, h.toFloat() / picture.height)
+            paint.colorFilter = filter.colorFilter()
             paint.shader = BitmapShader(picture, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP).apply {
                 setLocalMatrix(Matrix().apply {
                     setScale(fit, fit)

@@ -38,7 +38,14 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
     /** The photo on the widget; it differs from [current] while a download was started but never finished. */
     fun shown(): Long? = prefs.getLong(KEY_SHOWN, -1).takeIf { it >= 0 }
 
-    fun markShown(id: Long) = prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_FAILED, false).apply()
+    fun markShown(id: Long, plain: Boolean = false) =
+        prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_SHOWN_PLAIN, plain).putBoolean(KEY_FAILED, false).apply()
+
+    /** Whether the shown picture is to be drawn without the picture filter. */
+    fun shownIsPlain(): Boolean = prefs.getBoolean(KEY_SHOWN_PLAIN, false)
+
+    /** Whether the list marks [id] as a picture that already has a look (a Snapseed export). */
+    fun isPreFiltered(id: Long): Boolean = listFile.takeIf { it.exists() }?.useLines { lines -> lines.any { it == "$id,s" } } ?: false
 
     /** Whether the last request for a picture failed; the widget then shows a warning. */
     fun failed(): Boolean = prefs.getBoolean(KEY_FAILED, false)
@@ -95,6 +102,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         onProgress: ((Int, Int) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
     ): LongArray {
+        val preFiltered = HashSet<Long>()
         val filter = WidgetConfig(c, widgetId).timeFilter
         val today = LocalDate.now()
         val start = System.currentTimeMillis()
@@ -107,7 +115,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
                     partial[widgetId] = ids.toLongArray()
                 }
                 onProgress?.invoke(scanned, ids.size)
-            }, isStopped)
+            }, isStopped, preFiltered)
         } catch (e: Exception) {
             // Kept so the settings screen can explain why the widget stays empty.
             if (!isStopped()) prefs.edit().putString(KEY_LIST_ERROR, e.describe()).apply()
@@ -117,7 +125,8 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         }
         val end = System.currentTimeMillis()
         // Written atomically: taps may read the list while it is replaced.
-        listTmp.writeText(fresh.joinToString("\n"))
+        // A line is the id, followed by ",s" for a Snapseed picture.
+        listTmp.writeText(fresh.joinToString("\n") { if (it in preFiltered) "$it,s" else "$it" })
         listTmp.renameTo(listFile)
         prefs.edit()
             .putLong(KEY_LIST_TIME, end)
@@ -148,6 +157,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         private const val KEY_LIST_ERROR = "list_error"
         private const val KEY_PREFETCH = "prefetch"
         private const val KEY_SHOWN = "shown"
+        private const val KEY_SHOWN_PLAIN = "shown_plain"
         private const val KEY_FAILED = "failed"
 
         /** Photos found so far by running scans, usable before a scan has finished. */

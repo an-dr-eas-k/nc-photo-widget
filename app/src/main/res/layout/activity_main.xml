@@ -107,20 +107,20 @@
                     android:orientation="horizontal">
 
                     <Button
-                        android:id="@+id/save"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/button_save" />
-
-                    <Button
                         android:id="@+id/refresh_now"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
                         android:layout_weight="1"
                         android:text="@string/button_refresh_now" />
+
+                    <Button
+                        android:id="@+id/save"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="@string/button_save" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -139,6 +139,14 @@
             <include
                 android:id="@+id/rowStyle"
                 layout="@layout/item_style_row" />
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Picture filter. -->
+        <com.google.android.material.card.MaterialCardView style="@style/SettingsCard">
+
+            <include
+                android:id="@+id/rowFilter"
+                layout="@layout/item_filter_row" />
         </com.google.android.material.card.MaterialCardView>
 
         <!-- Settings. -->

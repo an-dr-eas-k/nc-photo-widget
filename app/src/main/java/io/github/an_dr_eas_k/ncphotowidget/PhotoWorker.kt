@@ -149,7 +149,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             WidgetUpdater.buffer(ctx, widgetId, id, bytes)
             WidgetUpdater.saveImage(ctx, widgetId, bytes)
         }
-        state.markShown(id)
+        state.markShown(id, state.isPreFiltered(id))
     }
 
     /**

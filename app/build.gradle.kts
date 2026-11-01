@@ -11,8 +11,8 @@ android {
         applicationId = "io.github.an_dr_eas_k.ncphotowidget"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1"
+        versionCode = 3
+        versionName = "2.0"
     }
 
     // Unset outside the maintainer's machine, so F-Droid builds an unsigned APK.

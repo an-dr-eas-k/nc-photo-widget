@@ -59,6 +59,8 @@
     <string name="label_interval">Change picture every</string>
     <string name="button_save">Save and apply</string>
     <string name="widget_failed">The last request failed</string>
+    <string name="filter_hint">Pictures with \"snapseed\" in the file name are shown without a filter, as they already have a look.</string>
+    <string name="label_photo_filter">Picture filter</string>
     <string name="label_widget_style">Widget style</string>
     <string name="label_appearance">Appearance</string>
     <string name="theme_system">System</string>
@@ -68,6 +70,18 @@
     <string name="error_not_logged_in">Log in first</string>
     <string name="error_bad_url">Enter a valid server address</string>
     <string name="help_widget">Tap the left edge of the widget for the previous picture, the right edge for the next one, and the center to open the picture in the Nextcloud app. To open these settings again, long-press the widget and tap its settings button.</string>
+
+    <string-array name="filter_labels">
+        <item>None</item>
+        <item>Grayscale</item>
+        <item>Noir</item>
+        <item>Sepia</item>
+        <item>Vivid</item>
+        <item>Faded</item>
+        <item>Warm</item>
+        <item>Cool</item>
+        <item>Faded film (teal and warm)</item>
+    </string-array>
 
     <string-array name="shape_labels">
         <item>Rounded corners</item>

@@ -118,6 +118,10 @@ class WidgetConfig(context: Context, val widgetId: Int) {
         get() = prefs.getInt("interval", 60)
         set(v) = prefs.edit().putInt("interval", v).apply()
 
+    var filter: PhotoFilter
+        get() = PhotoFilter.entries.firstOrNull { it.name == prefs.getString("filter", null) } ?: PhotoFilter.NONE
+        set(v) = prefs.edit().putString("filter", v.name).apply()
+
     var shape: WidgetShape
         get() = WidgetShape.entries.firstOrNull { it.name == prefs.getString("shape", null) } ?: WidgetShape.ROUNDED
         set(v) = prefs.edit().putString("shape", v.name).apply()

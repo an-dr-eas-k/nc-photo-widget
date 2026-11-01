@@ -42,6 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var intervalIndex = 0
     private var listRefreshIndex = 0
     private var shape = WidgetShape.ROUNDED
+    private var filter = PhotoFilter.NONE
     private var timeFilter = TimeFilter()
 
     private lateinit var statusCard: MaterialCardView
@@ -118,6 +119,7 @@ class MainActivity : AppCompatActivity() {
         intervalIndex = Settings.INTERVALS_MINUTES.indexOf(config.intervalMinutes).coerceAtLeast(0)
         listRefreshIndex = Settings.LIST_REFRESH_HOURS.indexOf(config.listRefreshHours).coerceAtLeast(0)
         shape = config.shape
+        filter = config.filter
         timeFilter = config.timeFilter
         // Unsaved edits survive the screen being recreated, e.g. by a theme change.
         savedInstanceState?.let { state ->
@@ -127,12 +129,14 @@ class MainActivity : AppCompatActivity() {
             listRefreshIndex = state.getInt(STATE_LIST_REFRESH, listRefreshIndex)
             server = state.getString(STATE_SERVER, server)
             shape = WidgetShape.entries.getOrElse(state.getInt(STATE_SHAPE, shape.ordinal)) { shape }
+            filter = PhotoFilter.entries.getOrElse(state.getInt(STATE_FILTER, filter.ordinal)) { filter }
             timeFilter = TimeFilter(state.getInt(STATE_DAYS, timeFilter.days), state.getBoolean(STATE_REPEAT, timeFilter.repeatYears))
         }
         accountDetail = loginStatusText()
         workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.scanName(widgetId))
 
         setUpRow(R.id.rowStyle, R.string.label_widget_style) { chooseShape() }
+        setUpRow(R.id.rowFilter, R.string.label_photo_filter) { chooseFilter() }
         setUpRow(R.id.rowFolders, R.string.row_folders) { chooseFolders() }
         setUpRow(R.id.rowTags, R.string.row_tags) { chooseTags() }
         setUpRow(R.id.rowTimeSpan, R.string.row_time_span) { chooseDays() }
@@ -155,6 +159,7 @@ class MainActivity : AppCompatActivity() {
         outState.putInt(STATE_LIST_REFRESH, listRefreshIndex)
         outState.putString(STATE_SERVER, server)
         outState.putInt(STATE_SHAPE, shape.ordinal)
+        outState.putInt(STATE_FILTER, filter.ordinal)
         outState.putInt(STATE_DAYS, timeFilter.days)
         outState.putBoolean(STATE_REPEAT, timeFilter.repeatYears)
     }
@@ -211,6 +216,8 @@ class MainActivity : AppCompatActivity() {
     private fun renderRows() {
         setDetail(R.id.rowStyle, resources.getStringArray(R.array.shape_labels)[shape.ordinal])
         findViewById<ShapePreviewView>(R.id.stylePreview).shape = shape
+        setDetail(R.id.rowFilter, resources.getStringArray(R.array.filter_labels)[filter.ordinal])
+        findViewById<FilterPreviewView>(R.id.filterPreview).filter = filter
         setDetail(R.id.rowFolders, if (folders.isEmpty()) getString(R.string.folders_none) else folders.joinToString(", "))
         setDetail(R.id.rowTags, if (tags.isEmpty()) getString(R.string.tags_none) else TagPickerActivity.describeTags(this, tags).replace("\n", "; "))
         setDetail(
@@ -293,6 +300,10 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun chooseFilter() = chooseOne(R.string.label_photo_filter, R.array.filter_labels, filter.ordinal, R.string.filter_hint) {
+        filter = PhotoFilter.entries[it]
+    }
+
     private fun chooseTheme() = chooseOne(R.string.label_appearance, R.array.theme_labels, settings.themeMode) { mode ->
         if (mode != settings.themeMode) {
             settings.themeMode = mode
@@ -302,9 +313,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun chooseOne(title: Int, labels: Int, selected: Int, onChosen: (Int) -> Unit) {
-        MaterialAlertDialogBuilder(this)
-            .setTitle(title)
+    /** A single choice dialog; a [hint], when given, is shown under the title. */
+    private fun chooseOne(title: Int, labels: Int, selected: Int, hint: Int? = null, onChosen: (Int) -> Unit) {
+        val builder = MaterialAlertDialogBuilder(this)
+        if (hint == null) {
+            builder.setTitle(title)
+        } else {
+            val header = layoutInflater.inflate(R.layout.dialog_title_hint, null)
+            header.findViewById<TextView>(R.id.dialogTitle).setText(title)
+            header.findViewById<TextView>(R.id.dialogHint).setText(hint)
+            builder.setCustomTitle(header)
+        }
+        builder
             .setSingleChoiceItems(labels, selected) { dialog, which ->
                 onChosen(which)
                 renderRows()
@@ -462,8 +482,9 @@ class MainActivity : AppCompatActivity() {
         config.intervalMinutes = Settings.INTERVALS_MINUTES[intervalIndex]
         config.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshIndex]
         config.timeFilter = timeFilter
-        if (shape != config.shape) {
+        if (shape != config.shape || filter != config.filter) {
             config.shape = shape
+            config.filter = filter
             WidgetUpdater.update(this, widgetId)
         }
 
@@ -483,6 +504,7 @@ class MainActivity : AppCompatActivity() {
         const val STATE_LIST_REFRESH = "list_refresh"
         const val STATE_SERVER = "server"
         const val STATE_SHAPE = "shape"
+        const val STATE_FILTER = "filter"
         const val STATE_DAYS = "days"
         const val STATE_REPEAT = "repeat"
     }
