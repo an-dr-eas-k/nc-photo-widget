@@ -62,6 +62,8 @@ class MainActivity : AppCompatActivity() {
     private var pollInFlight = false
     private val handler = Handler(Looper.getMainLooper())
     private val pollTask = Runnable { pollLogin() }
+    private var scanStartedAt = 0L
+    private val scanTicker = Runnable { tickScan() }
 
     private var widgetId = AppWidgetManager.INVALID_APPWIDGET_ID
     private var launchedForConfigure = false
@@ -183,6 +185,7 @@ class MainActivity : AppCompatActivity() {
     override fun onPause() {
         if (::workInfos.isInitialized) workInfos.removeObserver(workObserver)
         handler.removeCallbacks(pollTask)
+        stopScanTicker()
         super.onPause()
     }
 
@@ -234,6 +237,8 @@ class MainActivity : AppCompatActivity() {
             },
         )
         setDetail(R.id.rowInterval, resources.getStringArray(R.array.interval_labels)[intervalIndex])
+        findViewById<View>(R.id.rowInterval).findViewById<TextView>(R.id.value).text =
+            resources.getStringArray(R.array.interval_short_labels)[intervalIndex]
         setDetail(R.id.rowListRefresh, resources.getStringArray(R.array.list_refresh_labels)[listRefreshIndex])
         setDetail(R.id.rowAccount, accountDetail)
         setDetail(R.id.rowAppearance, resources.getStringArray(R.array.theme_labels)[settings.themeMode])
@@ -408,23 +413,34 @@ class MainActivity : AppCompatActivity() {
 
     private fun renderScanState(infos: List<WorkInfo>) {
         val scanning = infos.firstOrNull {
-            it.state == WorkInfo.State.RUNNING && it.progress.keyValueMap.containsKey(PhotoWorker.PROGRESS_FOLDERS)
+            it.state == WorkInfo.State.RUNNING && it.progress.keyValueMap.containsKey(PhotoWorker.PROGRESS_START)
         }
         val refreshPending = infos.any { !it.state.isFinished && PhotoWorker.ACTION_REFRESH in it.tags }
         when {
             scanning != null -> {
-                val photos = scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0)
-                statusCount.text = photos.toString()
-                statusSync.text = getString(
-                    R.string.stats_scanning_progress,
-                    scanning.progress.getInt(PhotoWorker.PROGRESS_FOLDERS, 0),
-                    photos,
-                )
+                statusCount.text = scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0).toString()
+                scanStartedAt = scanning.progress.getLong(PhotoWorker.PROGRESS_START, 0L)
+                tickScan()
             }
             refreshPending -> statusSync.setText(R.string.stats_scanning)
             else -> showListStats()
         }
+        if (scanning == null) stopScanTicker()
         refreshNow.isEnabled = !refreshPending
+    }
+
+    /** Shows the running scan's duration and again each second, until the scan is over. */
+    private fun tickScan() {
+        handler.removeCallbacks(scanTicker)
+        if (scanStartedAt == 0L) return
+        val seconds = ((System.currentTimeMillis() - scanStartedAt) / 1000).coerceAtLeast(0)
+        statusSync.text = getString(R.string.stats_scanning_duration, "%d:%02d".format(seconds / 60, seconds % 60))
+        handler.postDelayed(scanTicker, 1000)
+    }
+
+    private fun stopScanTicker() {
+        scanStartedAt = 0L
+        handler.removeCallbacks(scanTicker)
     }
 
     private fun formatDuration(ms: Long) =

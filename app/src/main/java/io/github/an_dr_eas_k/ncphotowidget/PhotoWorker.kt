@@ -105,12 +105,15 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
                 // The scan continues; a later tap or tick retries.
             }
         }
+        // The settings screen shows how long this scan has been running and how many photos it found.
+        val scanStart = System.currentTimeMillis()
+        setProgressAsync(workDataOf(PROGRESS_START to scanStart, PROGRESS_PHOTOS to 0))
         var lastProgress = 0L
-        val onProgress: (Int, Int) -> Unit = { folders, photos ->
+        val onProgress: (Int, Int) -> Unit = { _, photos ->
             val now = SystemClock.elapsedRealtime()
             if (now - lastProgress >= PROGRESS_INTERVAL_MS) {
                 lastProgress = now
-                setProgressAsync(workDataOf(PROGRESS_FOLDERS to folders, PROGRESS_PHOTOS to photos))
+                setProgressAsync(workDataOf(PROGRESS_START to scanStart, PROGRESS_PHOTOS to photos))
             }
         }
         try {
@@ -173,7 +176,8 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         const val ACTION_PREV = "io.github.an_dr_eas_k.ncphotowidget.PREV"
         /** Rescans the folders regardless of the list age. */
         const val ACTION_REFRESH = "io.github.an_dr_eas_k.ncphotowidget.REFRESH"
-        const val PROGRESS_FOLDERS = "folders"
+        /** Progress of a running scan: when it started, in epoch milliseconds. */
+        const val PROGRESS_START = "scan_start"
         const val PROGRESS_PHOTOS = "photos"
         private const val PROGRESS_INTERVAL_MS = 500L
     }

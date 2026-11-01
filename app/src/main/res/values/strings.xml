@@ -52,7 +52,7 @@
     <string name="button_refresh_now">Refresh list</string>
     <string name="stats_none">Photo list not synced yet</string>
     <string name="stats_scanning">Scanning folders…</string>
-    <string name="stats_scanning_progress">Scanning folders… %1$d folders, %2$d photos so far</string>
+    <string name="stats_scanning_duration">Scanning folders… %1$s</string>
     <string name="stats_format">Last synced %2$s, took %3$s</string>
     <string name="stats_error">Last sync failed: %1$s</string>
     <string name="error_list_failed">Could not load folders: %1$s</string>
@@ -82,6 +82,17 @@
         <item>System</item>
         <item>Light</item>
         <item>Dark</item>
+    </string-array>
+
+    <string-array name="interval_short_labels">
+        <item>15 min</item>
+        <item>30 min</item>
+        <item>1 h</item>
+        <item>3 h</item>
+        <item>6 h</item>
+        <item>12 h</item>
+        <item>24 h</item>
+        <item>Manual</item>
     </string-array>
 
     <string-array name="interval_labels">
