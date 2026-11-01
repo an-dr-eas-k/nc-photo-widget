@@ -413,7 +413,6 @@ class MainActivity : AppCompatActivity() {
             else -> showListStats()
         }
         if (scanning == null) stopScanTicker()
-        refreshNow.isEnabled = !refreshPending
     }
 
     /** Shows the running scan's duration and again each second, until the scan is over. */
