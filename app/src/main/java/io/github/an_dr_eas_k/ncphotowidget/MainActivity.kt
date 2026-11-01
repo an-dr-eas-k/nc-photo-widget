@@ -1,43 +1,52 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
 import android.app.Activity
-import android.app.AlertDialog
 import android.appwidget.AppWidgetManager
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.view.Gravity
-import android.view.ViewGroup
-import android.widget.ArrayAdapter
+import android.view.View
 import android.widget.Button
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.RadioGroup
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.R as AppCompatR
+import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.Observer
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.textfield.TextInputEditText
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
+import com.google.android.material.R as MaterialR
 
-class MainActivity : Activity() {
+class MainActivity : AppCompatActivity() {
     private lateinit var settings: Settings
-    private lateinit var serverField: EditText
-    private lateinit var foldersContainer: LinearLayout
-    private val folders = mutableListOf<String>()
-    private lateinit var tagsLabel: TextView
+    private var server = ""
+    private var folders = listOf<String>()
     private var tags = listOf<Tag>()
-    private lateinit var intervalSpinner: Spinner
-    private lateinit var listRefreshSpinner: Spinner
-    private lateinit var listStats: TextView
+    private var intervalIndex = 0
+    private var listRefreshIndex = 0
+
+    private lateinit var statusCard: MaterialCardView
+    private lateinit var statusDot: View
+    private lateinit var statusLabel: TextView
+    private lateinit var statusCount: TextView
+    private lateinit var statusItems: TextView
+    private lateinit var statusSync: TextView
+    private lateinit var saveButton: Button
     private lateinit var refreshNow: Button
-    private lateinit var status: TextView
+    private var accountDetail = ""
 
     // Login in progress: polled only while this screen is visible, as the system may block the
     // network of an app that sits in the background behind the browser.
@@ -53,6 +62,21 @@ class MainActivity : Activity() {
     private lateinit var workInfos: LiveData<List<WorkInfo>>
     private val workObserver = Observer<List<WorkInfo>> { renderScanState(it) }
 
+    private val folderPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getStringArrayListExtra(FolderPickerActivity.EXTRA_SELECTED)?.takeIf { result.resultCode == RESULT_OK }?.let {
+            folders = it.toList()
+            renderRows()
+        }
+    }
+
+    private val tagPicker = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val data = result.data?.takeIf { result.resultCode == RESULT_OK } ?: return@registerForActivityResult
+        val ids = data.getLongArrayExtra(TagPickerActivity.EXTRA_IDS) ?: return@registerForActivityResult
+        val names = data.getStringArrayExtra(TagPickerActivity.EXTRA_NAMES).orEmpty()
+        tags = ids.mapIndexed { i, id -> Tag(id, names.getOrElse(i) { "" }) }
+        renderRows()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         settings = Settings(this)
         // A force stop cancels the widget's tap handlers; opening the settings restores them.
@@ -63,57 +87,66 @@ class MainActivity : Activity() {
             configureWidgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
             setResult(RESULT_CANCELED, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, configureWidgetId))
         }
-        // The manifest theme already follows the system, so only explicit choices need overriding.
-        when (settings.themeMode) {
-            Settings.THEME_LIGHT -> setTheme(R.style.Theme_NC_Light)
-            Settings.THEME_DARK -> setTheme(R.style.Theme_NC_Dark)
-        }
+        AppCompatDelegate.setDefaultNightMode(nightMode(settings.themeMode))
         super.onCreate(savedInstanceState)
-        actionBar?.apply {
-            setDisplayShowHomeEnabled(true)
-            setIcon(R.mipmap.ic_launcher)
-        }
         setContentView(R.layout.activity_main)
-        setUpThemeSwitch()
 
-        serverField = findViewById(R.id.server)
-        foldersContainer = findViewById(R.id.folders)
-        tagsLabel = findViewById(R.id.tags)
-        intervalSpinner = findViewById(R.id.interval)
-        listRefreshSpinner = findViewById(R.id.list_refresh)
-        listStats = findViewById(R.id.list_stats)
+        statusCard = findViewById(R.id.statusCard)
+        statusDot = findViewById(R.id.statusDot)
+        statusLabel = findViewById(R.id.statusLabel)
+        statusCount = findViewById(R.id.statusCount)
+        statusItems = findViewById(R.id.statusItems)
+        statusSync = findViewById(R.id.statusSync)
+        saveButton = findViewById(R.id.save)
         refreshNow = findViewById(R.id.refresh_now)
-        status = findViewById(R.id.status)
+        styleStatusCard()
 
-        intervalSpinner.adapter = spinnerAdapter(R.array.interval_labels)
-        listRefreshSpinner.adapter = spinnerAdapter(R.array.list_refresh_labels)
-
-        serverField.setText(settings.serverUrl)
-        folders.addAll(settings.folders)
-        renderFolders()
+        server = settings.serverUrl
+        folders = settings.folders
         tags = settings.tags
-        renderTags()
-        intervalSpinner.setSelection(Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0))
-        listRefreshSpinner.setSelection(Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0))
-        showLoginStatus()
+        intervalIndex = Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0)
+        listRefreshIndex = Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0)
+        // Unsaved edits survive the screen being recreated, e.g. by a theme change.
+        savedInstanceState?.let { state ->
+            state.getStringArrayList(STATE_FOLDERS)?.let { folders = it }
+            state.getLongArray(STATE_TAG_IDS)?.let { ids ->
+                val names = state.getStringArray(STATE_TAG_NAMES).orEmpty()
+                tags = ids.mapIndexed { i, id -> Tag(id, names.getOrElse(i) { "" }) }
+            }
+            intervalIndex = state.getInt(STATE_INTERVAL, intervalIndex)
+            listRefreshIndex = state.getInt(STATE_LIST_REFRESH, listRefreshIndex)
+            server = state.getString(STATE_SERVER, server)
+        }
+        accountDetail = loginStatusText()
         workInfos = WorkManager.getInstance(this).getWorkInfosForUniqueWorkLiveData(Scheduler.SCAN)
 
-        findViewById<Button>(R.id.login).setOnClickListener { startLogin() }
-        findViewById<Button>(R.id.add_folder).setOnClickListener { addFolder() }
-        findViewById<Button>(R.id.choose_tags).setOnClickListener { chooseTags() }
+        setUpRow(R.id.rowFolders, R.string.row_folders) { chooseFolders() }
+        setUpRow(R.id.rowTags, R.string.row_tags) { chooseTags() }
+        setUpRow(R.id.rowInterval, R.string.label_interval) { chooseInterval() }
+        setUpRow(R.id.rowListRefresh, R.string.label_list_refresh) { chooseListRefresh() }
+        setUpRow(R.id.rowAccount, R.string.row_account) { showAccountDialog() }
+        setUpRow(R.id.rowAppearance, R.string.label_appearance) { chooseTheme() }
+        renderRows()
+
         refreshNow.setOnClickListener { refreshPhotoList() }
-        findViewById<Button>(R.id.save).setOnClickListener { save() }
+        saveButton.setOnClickListener { save() }
 
         savedInstanceState?.getString(STATE_LOGIN_TOKEN)?.let { token ->
             pendingSession = LoginFlow.Session("", savedInstanceState.getString(STATE_LOGIN_POLL_URL, ""), token)
             pendingServer = savedInstanceState.getString(STATE_LOGIN_SERVER, "")
             pendingDeadline = savedInstanceState.getLong(STATE_LOGIN_DEADLINE)
-            status.setText(R.string.status_waiting)
+            setAccountDetail(getString(R.string.status_waiting))
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
+        outState.putStringArrayList(STATE_FOLDERS, ArrayList(folders))
+        outState.putLongArray(STATE_TAG_IDS, tags.map { it.id }.toLongArray())
+        outState.putStringArray(STATE_TAG_NAMES, tags.map { it.name }.toTypedArray())
+        outState.putInt(STATE_INTERVAL, intervalIndex)
+        outState.putInt(STATE_LIST_REFRESH, listRefreshIndex)
+        outState.putString(STATE_SERVER, server)
         pendingSession?.let {
             outState.putString(STATE_LOGIN_TOKEN, it.token)
             outState.putString(STATE_LOGIN_POLL_URL, it.pollUrl)
@@ -135,48 +168,124 @@ class MainActivity : Activity() {
         super.onPause()
     }
 
-    private fun spinnerAdapter(labels: Int) =
-        ArrayAdapter.createFromResource(this, labels, android.R.layout.simple_spinner_item)
-            .also { it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+    private fun nightMode(mode: Int) = when (mode) {
+        Settings.THEME_LIGHT -> AppCompatDelegate.MODE_NIGHT_NO
+        Settings.THEME_DARK -> AppCompatDelegate.MODE_NIGHT_YES
+        else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+    }
 
-    private fun setUpThemeSwitch() {
-        val group = findViewById<RadioGroup>(R.id.theme_group)
-        val modes = mapOf(
-            R.id.theme_system to Settings.THEME_SYSTEM,
-            R.id.theme_light to Settings.THEME_LIGHT,
-            R.id.theme_dark to Settings.THEME_DARK,
+    private fun color(attribute: Int): Int = MaterialColors.getColor(statusCard, attribute)
+
+    /** Primary-coloured in light mode and a primary container in dark mode, like the reference app. */
+    private fun styleStatusCard() {
+        val dark = (resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+        val background = color(if (dark) MaterialR.attr.colorPrimaryContainer else AppCompatR.attr.colorPrimary)
+        val foreground = color(if (dark) MaterialR.attr.colorOnPrimaryContainer else MaterialR.attr.colorOnPrimary)
+        statusCard.setCardBackgroundColor(background)
+        for (text in listOf(statusLabel, statusCount, statusItems, statusSync)) text.setTextColor(foreground)
+        statusDot.backgroundTintList =
+            ColorStateList.valueOf(color(if (dark) AppCompatR.attr.colorPrimary else MaterialR.attr.colorPrimaryInverse))
+        saveButton.backgroundTintList = ColorStateList.valueOf(foreground)
+        saveButton.setTextColor(background)
+        refreshNow.setTextColor(foreground)
+        (refreshNow as MaterialButton).strokeColor = ColorStateList.valueOf(foreground)
+    }
+
+    private fun setUpRow(id: Int, title: Int, onClick: () -> Unit) {
+        val row = findViewById<View>(id)
+        row.findViewById<TextView>(R.id.title).setText(title)
+        row.setOnClickListener { onClick() }
+    }
+
+    private fun setDetail(id: Int, detail: String) {
+        findViewById<View>(id).findViewById<TextView>(R.id.detail).text = detail
+    }
+
+    private fun renderRows() {
+        setDetail(R.id.rowFolders, if (folders.isEmpty()) getString(R.string.folders_none) else folders.joinToString(", "))
+        setDetail(R.id.rowTags, if (tags.isEmpty()) getString(R.string.tags_none) else tags.joinToString(", ") { it.name })
+        setDetail(R.id.rowInterval, resources.getStringArray(R.array.interval_labels)[intervalIndex])
+        setDetail(R.id.rowListRefresh, resources.getStringArray(R.array.list_refresh_labels)[listRefreshIndex])
+        setDetail(R.id.rowAccount, accountDetail)
+        setDetail(R.id.rowAppearance, resources.getStringArray(R.array.theme_labels)[settings.themeMode])
+        statusLabel.setText(if (settings.isConfigured) R.string.home_connected else R.string.home_not_connected)
+    }
+
+    private fun setAccountDetail(text: String) {
+        accountDetail = text
+        renderRows()
+    }
+
+    private fun loginStatusText() = if (settings.isConfigured) {
+        getString(R.string.status_logged_in, settings.username)
+    } else {
+        getString(R.string.status_logged_out)
+    }
+
+    private fun chooseFolders() {
+        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
+        folderPicker.launch(
+            Intent(this, FolderPickerActivity::class.java)
+                .putStringArrayListExtra(FolderPickerActivity.EXTRA_SELECTED, ArrayList(folders)),
         )
-        group.check(modes.entries.first { it.value == settings.themeMode }.key)
-        group.setOnCheckedChangeListener { _, checkedId ->
-            val mode = modes.getValue(checkedId)
-            if (mode != settings.themeMode) {
-                settings.themeMode = mode
-                recreate()
+    }
+
+    private fun chooseInterval() = chooseOne(R.string.label_interval, R.array.interval_labels, intervalIndex) {
+        intervalIndex = it
+    }
+
+    private fun chooseListRefresh() = chooseOne(R.string.label_list_refresh, R.array.list_refresh_labels, listRefreshIndex) {
+        listRefreshIndex = it
+    }
+
+    private fun chooseTheme() = chooseOne(R.string.label_appearance, R.array.theme_labels, settings.themeMode) { mode ->
+        if (mode != settings.themeMode) {
+            settings.themeMode = mode
+            renderRows()
+            // Recreates the activity when the night mode actually changes.
+            AppCompatDelegate.setDefaultNightMode(nightMode(mode))
+        }
+    }
+
+    private fun chooseOne(title: Int, labels: Int, selected: Int, onChosen: (Int) -> Unit) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(title)
+            .setSingleChoiceItems(labels, selected) { dialog, which ->
+                onChosen(which)
+                renderRows()
+                dialog.dismiss()
             }
-        }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    private fun showLoginStatus() {
-        status.text = if (settings.isConfigured) {
-            getString(R.string.status_logged_in, settings.username)
-        } else {
-            getString(R.string.status_logged_out)
-        }
+    private fun showAccountDialog() {
+        val view = layoutInflater.inflate(R.layout.dialog_account, null)
+        val field = view.findViewById<TextInputEditText>(R.id.server)
+        field.setText(server)
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.row_account)
+            .setMessage(accountDetail)
+            .setView(view)
+            .setPositiveButton(R.string.button_login) { _, _ -> startLogin(field.text.toString()) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
-    private fun startLogin() {
-        val server = Settings.normalizeServerUrl(serverField.text.toString())
-        if (!server.startsWith("https://")) return toast(R.string.error_bad_url)
-        serverField.setText(server)
-        status.setText(R.string.status_waiting)
+    private fun startLogin(input: String) {
+        val normalized = Settings.normalizeServerUrl(input)
+        if (!normalized.startsWith("https://")) return toast(R.string.error_bad_url)
+        server = normalized
+        setAccountDetail(getString(R.string.status_waiting))
 
-        inBackground({ LoginFlow.start(server) }) { result ->
+        inBackground({ LoginFlow.start(normalized) }) { result ->
             result.onSuccess { session ->
                 pendingSession = session
-                pendingServer = server
+                pendingServer = normalized
                 pendingDeadline = System.currentTimeMillis() + LOGIN_TIMEOUT_MS
                 startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(session.loginUrl)))
-            }.onFailure { status.text = getString(R.string.status_failed, it.describe()) }
+            }.onFailure { setAccountDetail(getString(R.string.status_failed, it.describe())) }
         }
     }
 
@@ -184,7 +293,7 @@ class MainActivity : Activity() {
         val session = pendingSession ?: return
         if (System.currentTimeMillis() > pendingDeadline) {
             pendingSession = null
-            showLoginStatus()
+            setAccountDetail(loginStatusText())
             return
         }
         if (pollInFlight) return
@@ -199,72 +308,29 @@ class MainActivity : Activity() {
                 settings.username = login.username
                 settings.appPassword = login.appPassword
                 pendingSession = null
-                showLoginStatus()
+                setAccountDetail(loginStatusText())
             } else {
-                status.text = result.exceptionOrNull()?.let { getString(R.string.status_waiting_error, it.describe()) }
-                    ?: getString(R.string.status_waiting)
+                setAccountDetail(
+                    result.exceptionOrNull()?.let { getString(R.string.status_waiting_error, it.describe()) }
+                        ?: getString(R.string.status_waiting),
+                )
                 handler.postDelayed(pollTask, POLL_INTERVAL_MS)
             }
         }
     }
 
-    private fun renderFolders() {
-        foldersContainer.removeAllViews()
-        for (path in folders) {
-            val row = LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                gravity = Gravity.CENTER_VERTICAL
-            }
-            row.addView(
-                TextView(this).apply { text = path },
-                LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f),
-            )
-            row.addView(Button(this).apply {
-                setText(R.string.button_remove)
-                setOnClickListener {
-                    folders.remove(path)
-                    renderFolders()
-                }
-            })
-            foldersContainer.addView(row)
-        }
-    }
-
-    private fun addFolder() {
-        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
-        FolderPicker(this, NextcloudClient(settings), "/") {
-            if (it !in folders) folders.add(it)
-            renderFolders()
-        }.show()
-    }
-
-    private fun renderTags() {
-        tagsLabel.text = if (tags.isEmpty()) getString(R.string.tags_none) else tags.joinToString(", ") { it.name }
-    }
-
     private fun chooseTags() {
         if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
-        inBackground({ NextcloudClient(settings).listTags() }) { result ->
-            result.onSuccess { available ->
-                if (available.isEmpty()) return@onSuccess toast(R.string.error_no_tags)
-                val selected = BooleanArray(available.size) { i -> tags.any { it.id == available[i].id } }
-                AlertDialog.Builder(this)
-                    .setTitle(R.string.label_tags)
-                    .setMultiChoiceItems(available.map { it.name }.toTypedArray(), selected) { _, i, checked ->
-                        selected[i] = checked
-                    }
-                    .setPositiveButton(android.R.string.ok) { _, _ ->
-                        tags = available.filterIndexed { i, _ -> selected[i] }
-                        renderTags()
-                    }
-                    .setNegativeButton(android.R.string.cancel, null)
-                    .show()
-            }.onFailure { toast(getString(R.string.error_tags_failed, it.describe())) }
-        }
+        tagPicker.launch(
+            Intent(this, TagPickerActivity::class.java)
+                .putExtra(TagPickerActivity.EXTRA_IDS, tags.map { it.id }.toLongArray())
+                .putExtra(TagPickerActivity.EXTRA_NAMES, tags.map { it.name }.toTypedArray()),
+        )
     }
 
     private fun showListStats() {
         val stats = PhotoState.listStats(this)
+        statusCount.text = stats?.takeIf { it.timestamp != 0L }?.count?.toString() ?: getString(R.string.home_no_count)
         val text = when {
             stats == null -> getString(R.string.stats_none)
             stats.timestamp == 0L -> ""
@@ -276,7 +342,7 @@ class MainActivity : Activity() {
             )
         }
         val error = stats?.error?.let { getString(R.string.stats_error, it) }
-        listStats.text = listOf(text, error).filter { !it.isNullOrEmpty() }.joinToString("\n")
+        statusSync.text = listOf(text, error).filter { !it.isNullOrEmpty() }.joinToString("\n")
     }
 
     private fun renderScanState(infos: List<WorkInfo>) {
@@ -285,12 +351,16 @@ class MainActivity : Activity() {
         }
         val refreshPending = infos.any { !it.state.isFinished && PhotoWorker.ACTION_REFRESH in it.tags }
         when {
-            scanning != null -> listStats.text = getString(
-                R.string.stats_scanning_progress,
-                scanning.progress.getInt(PhotoWorker.PROGRESS_FOLDERS, 0),
-                scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0),
-            )
-            refreshPending -> listStats.setText(R.string.stats_scanning)
+            scanning != null -> {
+                val photos = scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0)
+                statusCount.text = photos.toString()
+                statusSync.text = getString(
+                    R.string.stats_scanning_progress,
+                    scanning.progress.getInt(PhotoWorker.PROGRESS_FOLDERS, 0),
+                    photos,
+                )
+            }
+            refreshPending -> statusSync.setText(R.string.stats_scanning)
             else -> showListStats()
         }
         refreshNow.isEnabled = !refreshPending
@@ -303,28 +373,13 @@ class MainActivity : Activity() {
 
     private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
 
-    /** Rescans the saved folders now, so changes on the server show up without waiting for the schedule. */
+    /** Saves any pending changes and rescans the folders now, so the tile shows fresh numbers. */
     private fun refreshPhotoList() {
-        when {
-            !settings.isConfigured -> toast(R.string.error_not_logged_in)
-            folders != settings.folders || tags != settings.tags -> toast(R.string.error_unsaved_folders)
-            folders.isEmpty() -> toast(R.string.error_no_folder)
-            else -> Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
-        }
+        apply()
     }
 
     private fun save() {
-        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
-        if (folders.isEmpty()) return toast(R.string.error_no_folder)
-        val filterChanged = folders != settings.folders || tags != settings.tags
-        settings.folders = folders.toList()
-        settings.tags = tags
-        settings.intervalMinutes = Settings.INTERVALS_MINUTES[intervalSpinner.selectedItemPosition]
-        settings.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshSpinner.selectedItemPosition]
-
-        if (filterChanged) PhotoState.reset(this)
-        Scheduler.apply(this)
-        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
+        if (!apply()) return
         toast(R.string.saved)
 
         if (configureWidgetId != AppWidgetManager.INVALID_APPWIDGET_ID) {
@@ -334,6 +389,22 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Stores the pending settings and starts a rescan; false (with a message) if they are not complete. */
+    private fun apply(): Boolean {
+        if (!settings.isConfigured) return false.also { toast(R.string.error_not_logged_in) }
+        if (folders.isEmpty()) return false.also { toast(R.string.error_no_folder) }
+        val filterChanged = folders != settings.folders || tags != settings.tags
+        settings.folders = folders
+        settings.tags = tags
+        settings.intervalMinutes = Settings.INTERVALS_MINUTES[intervalIndex]
+        settings.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshIndex]
+
+        if (filterChanged) PhotoState.reset(this)
+        Scheduler.apply(this)
+        Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
+        return true
+    }
+
     private companion object {
         const val LOGIN_TIMEOUT_MS = 10 * 60 * 1000L
         const val POLL_INTERVAL_MS = 2000L
@@ -341,6 +412,12 @@ class MainActivity : Activity() {
         const val STATE_LOGIN_POLL_URL = "login_poll_url"
         const val STATE_LOGIN_SERVER = "login_server"
         const val STATE_LOGIN_DEADLINE = "login_deadline"
+        const val STATE_FOLDERS = "folders"
+        const val STATE_TAG_IDS = "tag_ids"
+        const val STATE_TAG_NAMES = "tag_names"
+        const val STATE_INTERVAL = "interval"
+        const val STATE_LIST_REFRESH = "list_refresh"
+        const val STATE_SERVER = "server"
     }
 }
 

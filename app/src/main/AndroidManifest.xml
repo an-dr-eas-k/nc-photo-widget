@@ -23,6 +23,14 @@
         </activity>
 
         <activity
+            android:name=".FolderPickerActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".TagPickerActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".OpenPhotoActivity"
             android:exported="false"
             android:excludeFromRecents="true"
