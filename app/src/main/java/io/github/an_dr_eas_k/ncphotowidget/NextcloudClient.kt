@@ -55,6 +55,7 @@ class NextcloudClient(private val settings: Settings) {
     /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
     fun listImageIds(
         folders: List<String>,
+        tags: List<Tag> = emptyList(),
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
@@ -63,6 +64,12 @@ class NextcloudClient(private val settings: Settings) {
         val ids = LinkedHashSet<Long>()
         var notified = false
         var scanned = 0
+        if (tags.isNotEmpty()) {
+            ids.addAll(listTaggedImageIds(folders, tags))
+            onProgress?.invoke(1, ids)
+            if (ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
+            return ids.toLongArray()
+        }
         val queue = ArrayDeque<HttpUrl>()
         folders.forEach { queue.add(folderUrl(it)) }
         while (queue.isNotEmpty()) {
@@ -84,6 +91,66 @@ class NextcloudClient(private val settings: Settings) {
         // Fewer photos than the pool size: pick from all of them.
         if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
         return ids.toLongArray()
+    }
+
+    /** All system tags the user can see, sorted case-insensitively. */
+    fun listTags(): List<Tag> {
+        val url = base.newBuilder().addPathSegments("remote.php/dav/systemtags/").build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth)
+            .header("Depth", "1")
+            .method("PROPFIND", TAGS_BODY.toRequestBody("application/xml".toMediaType()))
+        val tags = call(request) { response ->
+            val parser = Xml.newPullParser()
+            parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
+            parser.setInput(response.body!!.byteStream(), null)
+            val found = ArrayList<Tag>()
+            var id = -1L
+            var name = ""
+            var visible = true
+            var event = parser.eventType
+            while (event != XmlPullParser.END_DOCUMENT) {
+                if (event == XmlPullParser.START_TAG) {
+                    when (parser.name) {
+                        "response" -> { id = -1L; name = ""; visible = true }
+                        "id" -> id = parser.nextText().toLongOrNull() ?: -1L
+                        "display-name" -> name = parser.nextText()
+                        "user-visible" -> visible = parser.nextText() != "false"
+                    }
+                } else if (event == XmlPullParser.END_TAG && parser.name == "response" && id >= 0 && visible) {
+                    found.add(Tag(id, name))
+                }
+                event = parser.next()
+            }
+            found
+        }
+        return tags.sortedBy { it.name.lowercase() }
+    }
+
+    /** Images carrying all [tags] (a server-side search over all files) that lie inside one of [folders]. */
+    private fun listTaggedImageIds(folders: List<String>, tags: List<Tag>): List<Long> {
+        val rules = tags.joinToString("") { "<oc:systemtag>${it.id}</oc:systemtag>" }
+        val body = """<?xml version="1.0"?>
+<oc:filter-files xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/></d:prop>
+  <oc:filter-rules>$rules</oc:filter-rules>
+</oc:filter-files>"""
+        val url = base.newBuilder()
+            .addPathSegments("remote.php/dav/files")
+            .addPathSegment(settings.username)
+            .build()
+        val request = Request.Builder()
+            .url(url)
+            .header("Authorization", auth)
+            .method("REPORT", body.toRequestBody("application/xml".toMediaType()))
+        val prefixes = folders.map { Uri.decode(folderUrl(it).encodedPath).trimEnd('/') + "/" }
+        return call(request) { parseMultiStatus(it.body!!.byteStream()) }
+            .filter { e ->
+                !e.isDir && e.contentType.startsWith("image/") && e.fileId > 0 &&
+                    Uri.decode(e.href).let { href -> prefixes.any { href.startsWith(it) } }
+            }
+            .map { it.fileId }
     }
 
     private fun propfind(url: HttpUrl): List<Entry> {
@@ -139,6 +206,10 @@ class NextcloudClient(private val settings: Settings) {
 
     private companion object {
         const val EARLY_POOL = 50
+        const val TAGS_BODY = """<?xml version="1.0"?>
+<d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
+  <d:prop><oc:id/><oc:display-name/><oc:user-visible/></d:prop>
+</d:propfind>"""
         const val PROPFIND_BODY = """<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
   <d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/></d:prop>

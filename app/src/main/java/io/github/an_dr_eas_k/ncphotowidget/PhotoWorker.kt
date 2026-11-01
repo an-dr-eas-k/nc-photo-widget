@@ -93,7 +93,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         }
         try {
             val ids = PhotoState.refreshList(
-                ctx, client, settings.folders, if (wasEmpty) showEarly else null, onProgress, { isStopped },
+                ctx, client, settings.folders, settings.tags, if (wasEmpty) showEarly else null, onProgress, { isStopped },
             )
             if (wasEmpty && !shownEarly) {
                 if (ids.isEmpty()) WidgetUpdater.update(ctx, ctx.getString(R.string.widget_empty))

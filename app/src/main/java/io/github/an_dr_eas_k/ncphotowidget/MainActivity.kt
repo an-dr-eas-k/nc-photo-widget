@@ -1,6 +1,7 @@
 package io.github.an_dr_eas_k.ncphotowidget
 
 import android.app.Activity
+import android.app.AlertDialog
 import android.appwidget.AppWidgetManager
 import android.content.Intent
 import android.net.Uri
@@ -30,6 +31,8 @@ class MainActivity : Activity() {
     private lateinit var serverField: EditText
     private lateinit var foldersContainer: LinearLayout
     private val folders = mutableListOf<String>()
+    private lateinit var tagsLabel: TextView
+    private var tags = listOf<Tag>()
     private lateinit var intervalSpinner: Spinner
     private lateinit var listRefreshSpinner: Spinner
     private lateinit var listStats: TextView
@@ -75,6 +78,7 @@ class MainActivity : Activity() {
 
         serverField = findViewById(R.id.server)
         foldersContainer = findViewById(R.id.folders)
+        tagsLabel = findViewById(R.id.tags)
         intervalSpinner = findViewById(R.id.interval)
         listRefreshSpinner = findViewById(R.id.list_refresh)
         listStats = findViewById(R.id.list_stats)
@@ -87,6 +91,8 @@ class MainActivity : Activity() {
         serverField.setText(settings.serverUrl)
         folders.addAll(settings.folders)
         renderFolders()
+        tags = settings.tags
+        renderTags()
         intervalSpinner.setSelection(Settings.INTERVALS_MINUTES.indexOf(settings.intervalMinutes).coerceAtLeast(0))
         listRefreshSpinner.setSelection(Settings.LIST_REFRESH_HOURS.indexOf(settings.listRefreshHours).coerceAtLeast(0))
         showLoginStatus()
@@ -94,6 +100,7 @@ class MainActivity : Activity() {
 
         findViewById<Button>(R.id.login).setOnClickListener { startLogin() }
         findViewById<Button>(R.id.add_folder).setOnClickListener { addFolder() }
+        findViewById<Button>(R.id.choose_tags).setOnClickListener { chooseTags() }
         refreshNow.setOnClickListener { refreshPhotoList() }
         findViewById<Button>(R.id.save).setOnClickListener { save() }
 
@@ -231,6 +238,31 @@ class MainActivity : Activity() {
         }.show()
     }
 
+    private fun renderTags() {
+        tagsLabel.text = if (tags.isEmpty()) getString(R.string.tags_none) else tags.joinToString(", ") { it.name }
+    }
+
+    private fun chooseTags() {
+        if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
+        inBackground({ NextcloudClient(settings).listTags() }) { result ->
+            result.onSuccess { available ->
+                if (available.isEmpty()) return@onSuccess toast(R.string.error_no_tags)
+                val selected = BooleanArray(available.size) { i -> tags.any { it.id == available[i].id } }
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.label_tags)
+                    .setMultiChoiceItems(available.map { it.name }.toTypedArray(), selected) { _, i, checked ->
+                        selected[i] = checked
+                    }
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        tags = available.filterIndexed { i, _ -> selected[i] }
+                        renderTags()
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }.onFailure { toast(getString(R.string.error_tags_failed, it.describe())) }
+        }
+    }
+
     private fun showListStats() {
         val stats = PhotoState.listStats(this)
         val text = when {
@@ -269,11 +301,13 @@ class MainActivity : Activity() {
 
     private fun toast(message: Int) = Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
 
+    private fun toast(message: String) = Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+
     /** Rescans the saved folders now, so changes on the server show up without waiting for the schedule. */
     private fun refreshPhotoList() {
         when {
             !settings.isConfigured -> toast(R.string.error_not_logged_in)
-            folders != settings.folders -> toast(R.string.error_unsaved_folders)
+            folders != settings.folders || tags != settings.tags -> toast(R.string.error_unsaved_folders)
             folders.isEmpty() -> toast(R.string.error_no_folder)
             else -> Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
         }
@@ -282,12 +316,13 @@ class MainActivity : Activity() {
     private fun save() {
         if (!settings.isConfigured) return toast(R.string.error_not_logged_in)
         if (folders.isEmpty()) return toast(R.string.error_no_folder)
-        val foldersChanged = folders != settings.folders
+        val filterChanged = folders != settings.folders || tags != settings.tags
         settings.folders = folders.toList()
+        settings.tags = tags
         settings.intervalMinutes = Settings.INTERVALS_MINUTES[intervalSpinner.selectedItemPosition]
         settings.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshSpinner.selectedItemPosition]
 
-        if (foldersChanged) PhotoState.reset(this)
+        if (filterChanged) PhotoState.reset(this)
         Scheduler.apply(this)
         Scheduler.enqueue(this, PhotoWorker.ACTION_REFRESH)
         toast(R.string.saved)

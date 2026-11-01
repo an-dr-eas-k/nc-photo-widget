@@ -19,6 +19,11 @@
     <string name="button_add_folder">Add folder</string>
     <string name="button_remove">Remove</string>
     <string name="error_no_folder">Add at least one folder</string>
+    <string name="label_tags">Only photos with all of these tags (within the folders)</string>
+    <string name="tags_none">No tag filter</string>
+    <string name="button_choose_tags">Choose tags</string>
+    <string name="error_no_tags">No tags found on the server</string>
+    <string name="error_tags_failed">Could not load tags: %1$s</string>
     <string name="label_list_refresh">Refresh the photo list</string>
     <string name="button_refresh_now">Refresh photo list now</string>
     <string name="stats_none">Photo list not synced yet</string>
@@ -26,7 +31,7 @@
     <string name="stats_scanning_progress">Scanning folders… %1$d folders, %2$d photos so far</string>
     <string name="stats_format">Photos: %1$d\nLast sync: %2$s\nSync took: %3$s</string>
     <string name="stats_error">Last sync failed: %1$s</string>
-    <string name="error_unsaved_folders">Save the folder changes first</string>
+    <string name="error_unsaved_folders">Save the folder and tag changes first</string>
     <string name="folder_select">Select this folder</string>
     <string name="folder_up">.. (up)</string>
     <string name="error_list_failed">Could not load folders: %1$s</string>

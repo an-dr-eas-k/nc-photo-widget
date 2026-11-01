@@ -82,7 +82,7 @@ object PhotoState {
 
     /** Scans the folders now and records when it happened, how long it took and how many photos it found. */
     fun refreshList(
-        c: Context, client: NextcloudClient, folders: List<String>,
+        c: Context, client: NextcloudClient, folders: List<String>, tags: List<Tag>,
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((Int, Int) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
@@ -90,7 +90,7 @@ object PhotoState {
         val start = System.currentTimeMillis()
         var lastPartial = 0L
         val fresh = try {
-            client.listImageIds(folders, onFirstImage, { scanned, ids ->
+            client.listImageIds(folders, tags, onFirstImage, { scanned, ids ->
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastPartial >= PARTIAL_INTERVAL_MS) {
                     lastPartial = now

@@ -2,6 +2,9 @@ package io.github.an_dr_eas_k.ncphotowidget
 
 import android.content.Context
 
+/** A Nextcloud system tag. */
+data class Tag(val id: Long, val name: String)
+
 class Settings(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
@@ -21,6 +24,12 @@ class Settings(context: Context) {
         get() = (prefs.getString("folders", null) ?: prefs.getString("folder", null))
             ?.split('\n')?.filter { it.isNotBlank() }.orEmpty()
         set(v) = prefs.edit().putString("folders", v.joinToString("\n")).remove("folder").apply()
+
+    var tags: List<Tag>
+        get() = prefs.getString("tags", "")?.split('\n').orEmpty().mapNotNull { line ->
+            line.substringBefore('\t').toLongOrNull()?.let { Tag(it, line.substringAfter('\t', "")) }
+        }
+        set(v) = prefs.edit().putString("tags", v.joinToString("\n") { "${it.id}\t${it.name}" }).apply()
 
     var listRefreshHours: Int
         get() = prefs.getInt("list_refresh_hours", 24)
