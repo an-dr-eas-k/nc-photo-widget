@@ -318,23 +318,6 @@ class NextcloudClient(private val settings: Settings) {
     private fun unixTime(text: String): LocalDateTime? =
         text.trim().toLongOrNull()?.let { LocalDateTime.ofEpochSecond(it, 0, ZoneOffset.UTC) }
 
-    /** When the photo was taken, or else last modified; null if the server does not know the file. */
-    fun fetchDateTime(fileId: Long): LocalDateTime? {
-        val body = """<?xml version="1.0"?>
-<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
-  <d:basicsearch>
-    <d:select><d:prop><d:getlastmodified/><nc:metadata-photos-original_date_time/></d:prop></d:select>
-    <d:from><d:scope><d:href>/files/${Uri.encode(settings.username)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
-    <d:where><d:eq><d:prop><oc:fileid/></d:prop><d:literal>$fileId</d:literal></d:eq></d:where>
-  </d:basicsearch>
-</d:searchrequest>"""
-        val request = Request.Builder()
-            .url(base.newBuilder().addPathSegments("remote.php/dav/").build())
-            .header("Authorization", auth)
-            .method("SEARCH", body.toRequestBody("text/xml".toMediaType()))
-        return call(request, http, this) { parseMultiStatus(it.body!!.byteStream()) }.firstOrNull { !it.isDir }?.time
-    }
-
     private companion object {
         const val EARLY_POOL = 50
         const val SEARCH_PAGE = 1000

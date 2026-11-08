@@ -5,6 +5,9 @@ import android.appwidget.AppWidgetProvider
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.FormatStyle
 
 class PhotoWidgetProvider : AppWidgetProvider() {
 
@@ -44,14 +47,10 @@ class PhotoWidgetProvider : AppWidgetProvider() {
                 val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
                 if (id == AppWidgetManager.INVALID_APPWIDGET_ID) return
                 val state = PhotoState(context, id)
-                if (state.info() != null) {
-                    // A second tap hides the date again.
-                    state.setInfo(null)
-                    WidgetUpdater.update(context, id)
-                } else {
-                    WidgetUpdater.showLoading(context, id)
-                    Scheduler.enqueue(context, id, PhotoWorker.ACTION_INFO)
-                }
+                // A second tap hides the date again. The day is in the photo list, so this needs no network.
+                val day = if (state.info() == null) state.shown()?.let { state.dayOf(it) } else null
+                state.setInfo(day?.let { LocalDate.ofEpochDay(it.toLong()).format(DateTimeFormatter.ofLocalizedDate(FormatStyle.MEDIUM)) })
+                WidgetUpdater.update(context, id)
             }
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 WidgetConfig.migrateLegacy(context)

@@ -52,6 +52,12 @@ class PhotoList private constructor(c: Context, widgetId: Int) :
     fun isPlain(id: Long): Boolean =
         query("SELECT plain FROM photos WHERE id = ?", arrayOf(id.toString())) { it.moveToFirst() && it.getInt(0) != 0 }
 
+    /** The day the photo was taken (or last changed), or null when it is not in the list or has none. */
+    fun day(id: Long): Int? =
+        query("SELECT day FROM photos WHERE id = ?", arrayOf(id.toString())) {
+            if (it.moveToFirst()) it.getInt(0).takeIf { day -> day != NO_DAY } else null
+        }
+
     fun remove(id: Long) {
         writableDatabase.delete("photos", "id = ?", arrayOf(id.toString()))
     }

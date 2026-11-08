@@ -97,6 +97,9 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
     /** The photos of the list that are inside the time span now, or what a running first scan has found so far. */
     fun knownIds(): LongArray = list.ids(timeFilter(), LocalDate.now()).takeIf { it.isNotEmpty() } ?: partial[widgetId] ?: LongArray(0)
 
+    /** The day [id] was taken, as stored in the list. */
+    fun dayOf(id: Long): Int? = list.day(id)
+
     /** Forgets a photo that is gone from the server. */
     fun removeFromList(id: Long) = list.remove(id)
 

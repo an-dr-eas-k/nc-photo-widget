@@ -18,8 +18,6 @@ import java.io.IOException
 import java.time.Duration
 import java.time.LocalDateTime
 import java.time.LocalTime
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 import java.util.concurrent.TimeUnit
 
 class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, params) {
@@ -52,7 +50,6 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             return Result.success()
         }
         if (action == ACTION_REFRESH || action == ACTION_UPDATE) return scan(widgetId, client, config, state, update = action == ACTION_UPDATE)
-        if (action == ACTION_INFO) return showInfo(widgetId, client, state)
 
         val backup = state.backup()
         var retrying = false
@@ -100,20 +97,6 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
             state.setFailed(true)
         }
         WidgetUpdater.update(ctx, widgetId, loading = moreQueued(widgetId))
-        return Result.success()
-    }
-
-    /** Looks up when the shown photo was taken and puts it on the widget. */
-    private fun showInfo(widgetId: Int, client: NextcloudClient, state: PhotoState): Result {
-        val ctx = applicationContext
-        try {
-            val id = state.shown()
-            val time = if (id == null) null else client.fetchDateTime(id)
-            state.setInfo(time?.format(DateTimeFormatter.ofLocalizedDateTime(FormatStyle.MEDIUM, FormatStyle.SHORT)))
-        } catch (e: Exception) {
-            // The widget just stays as it was; the tap can be repeated.
-        }
-        if (!isStopped) WidgetUpdater.update(ctx, widgetId)
         return Result.success()
     }
 
@@ -207,7 +190,7 @@ class PhotoWorker(context: Context, params: WorkerParameters) : Worker(context, 
         const val KEY_WIDGET_ID = "widget_id"
         const val ACTION_NEXT = "io.github.an_dr_eas_k.ncphotowidget.NEXT"
         const val ACTION_PREV = "io.github.an_dr_eas_k.ncphotowidget.PREV"
-        /** Shows when the shown photo was taken. */
+        /** Shows or hides the date the shown photo was taken; handled by the widget provider, no job. */
         const val ACTION_INFO = "io.github.an_dr_eas_k.ncphotowidget.INFO"
         /** Rescans the folders regardless of the list age. */
         const val ACTION_REFRESH = "io.github.an_dr_eas_k.ncphotowidget.REFRESH"

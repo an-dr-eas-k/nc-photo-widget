@@ -11,7 +11,7 @@ Shows a random picture from a folder on your Nextcloud server as a home screen w
 <li>The photo list is scanned once and then kept up to date by adding only new photos, with photo count, last sync time and sync duration shown; refresh it manually at any time</li>
 <li>Picture filters such as grayscale, sepia or an analog film look; pictures with "snapseed" in the file name are shown unfiltered, as they already have a look</li>
 <li>Tap the left edge for the previous picture, the right edge for the next one; the recent history is kept on the device, also for offline use</li>
-<li>Tap the center to open the picture in the official Nextcloud app; tap the bottom middle of a widget two or more cells high to show or hide the photo's date and time</li>
+<li>Tap the center to open the picture in the official Nextcloud app; tap the bottom middle of a widget two or more cells high to show or hide the photo's date</li>
 <li>Light, dark or system theme</li>
 </ul>
 
