@@ -24,12 +24,23 @@
         <item name="colorOnPrimaryContainer">@color/on_interactive_container</item>
     </style>
 
+    <!-- Buttons take their colors from colorContainer, which Material's own overlays map to colorPrimary. -->
+    <style name="ThemeOverlay.NC.Button" parent="ThemeOverlay.Material3.Button">
+        <item name="colorPrimary">@color/interactive</item>
+        <item name="colorOnPrimary">@color/on_interactive</item>
+    </style>
+
+    <style name="ThemeOverlay.NC.Button.TextButton" parent="ThemeOverlay.Material3.Button.TextButton">
+        <item name="colorPrimary">@color/interactive</item>
+        <item name="colorOnPrimary">@color/on_interactive</item>
+    </style>
+
     <style name="Widget.NC.Button" parent="Widget.Material3.Button">
-        <item name="materialThemeOverlay">@style/ThemeOverlay.NC.Interactive</item>
+        <item name="materialThemeOverlay">@style/ThemeOverlay.NC.Button</item>
     </style>
 
     <style name="Widget.NC.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
-        <item name="materialThemeOverlay">@style/ThemeOverlay.NC.Interactive</item>
+        <item name="materialThemeOverlay">@style/ThemeOverlay.NC.Button.TextButton</item>
     </style>
 
     <style name="Widget.NC.CheckBox" parent="Widget.Material3.CompoundButton.CheckBox">
