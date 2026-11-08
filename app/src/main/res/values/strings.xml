@@ -79,7 +79,7 @@
         <item>Faded</item>
         <item>Warm</item>
         <item>Cool</item>
-        <item>Faded film (teal and warm)</item>
+        <item>Analog film</item>
     </string-array>
 
     <string-array name="shape_labels">

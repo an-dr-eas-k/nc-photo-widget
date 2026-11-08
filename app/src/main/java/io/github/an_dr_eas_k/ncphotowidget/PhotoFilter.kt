@@ -27,14 +27,15 @@ enum class PhotoFilter {
         FADED -> ColorMatrix().apply { setSaturation(0.85f) }.apply { postConcat(scaleAndLift(0.86f, 0.86f, 0.86f, 30f, 30f, 30f)) }
         WARM -> ColorMatrix(diagonal(1.08f, 1.0f, 0.88f))
         COOL -> ColorMatrix(diagonal(0.9f, 1.0f, 1.1f))
-        // A faded film look with teal shadows and warm highlights, estimated from a sample photo.
-        FILM -> ColorMatrix().apply { setSaturation(1.1f) }.apply {
+        // Polaroid 600 look: slightly muted colour, lifted bluish-green shadows, creamy yellow highlights and soft contrast.
+        FILM -> ColorMatrix().apply { setSaturation(0.9f) }.apply {
+            postConcat(contrast(1.05f))
             postConcat(
                 ColorMatrix(
                     floatArrayOf(
-                        0.88f, 0f, 0f, 0f, 22f,
-                        0f, 0.86f, 0f, 0f, 30f,
-                        0f, 0.10f, 0.72f, 0f, 36f,
+                        0.94f, 0.05f, 0.01f, 0f, 14f,
+                        0.02f, 0.90f, 0.03f, 0f, 16f,
+                        0.02f, 0.05f, 0.80f, 0f, 26f,
                         0f, 0f, 0f, 1f, 0f,
                     ),
                 ),
