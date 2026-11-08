@@ -458,7 +458,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Saves any pending changes and rescans the folders now, so the tile shows fresh numbers. */
     private fun refreshPhotoList() {
-        apply()
+        apply(rescan = true)
     }
 
     private fun save() {
@@ -472,8 +472,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Stores the pending settings and starts a rescan; false (with a message) if they are not complete. */
-    private fun apply(): Boolean {
+    /**
+     * Stores the pending settings; false (with a message) if they are not complete.
+     * The photo list is rescanned only on request, when what it is built from changed, or if it was never scanned.
+     */
+    private fun apply(rescan: Boolean = false): Boolean {
         if (!settings.isConfigured) return false.also { toast(R.string.error_not_logged_in) }
         if (folders.isEmpty()) return false.also { toast(R.string.error_no_folder) }
         val filterChanged = folders != config.folders || tags != config.tags || timeFilter != config.timeFilter
@@ -490,7 +493,9 @@ class MainActivity : AppCompatActivity() {
 
         if (filterChanged) state.reset()
         Scheduler.apply(this)
-        Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_REFRESH)
+        if (rescan || filterChanged || !state.hasScanned()) {
+            Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_REFRESH)
+        }
         return true
     }
 
