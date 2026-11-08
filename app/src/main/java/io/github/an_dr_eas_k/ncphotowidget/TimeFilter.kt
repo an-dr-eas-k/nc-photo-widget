@@ -30,9 +30,22 @@ data class TimeFilter(val days: Int = 0, val repeatYears: Boolean = false) {
         }
     }
 
+    /**
+     * The same as [accepts], as ranges of days (inclusive) to be matched by a database query;
+     * null when there is no time span. Photos from before 1970 are not matched when repeating.
+     */
+    fun dayRanges(today: LocalDate = LocalDate.now()): List<IntRange>? {
+        if (!active) return null
+        fun window(end: LocalDate) = end.minusDays(days.toLong()).toEpochDay().toInt()..end.toEpochDay().toInt()
+        if (!(repeatYears && canRepeat)) return listOf(window(today))
+        val monthDay = MonthDay.from(today)
+        return (FIRST_YEAR..today.year).map { monthDay.atYear(it) }.filter { !it.isAfter(today) }.map { window(it) }
+    }
+
     private fun inWindow(taken: LocalDate, end: LocalDate) = !taken.isAfter(end) && !taken.isBefore(end.minusDays(days.toLong()))
 
     companion object {
         const val DAYS_PER_YEAR = 365
+        private const val FIRST_YEAR = 1970
     }
 }

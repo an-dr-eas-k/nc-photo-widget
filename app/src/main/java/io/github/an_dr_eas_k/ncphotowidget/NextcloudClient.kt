@@ -23,6 +23,9 @@ import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.concurrent.TimeUnit
 
+/** A photo of the server: its id, the day it was taken (or [NO_DAY]) and whether it already has a look of its own. */
+class Photo(val id: Long, val day: Int, val plain: Boolean)
+
 class HttpException(val code: Int) : IOException("HTTP $code")
 
 private val http = OkHttpClient.Builder()
@@ -78,28 +81,33 @@ class NextcloudClient(private val settings: Settings) {
             .map { Uri.decode(it.href.trimEnd('/').substringAfterLast('/')) }
             .sortedBy { it.lowercase() }
 
-    /** Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled). */
-    fun listImageIds(
+    /**
+     * Walks [folders] recursively (Depth: 1 per folder, since Depth: infinity is usually disabled) and returns
+     * every photo, whether it passes [wanted] or not: the time span is applied when a photo is picked, so it
+     * can move on without another scan. [onFirstImage] and [onProgress] only see the photos that pass it.
+     */
+    fun listImages(
         folders: List<String>,
         tags: List<Tag> = emptyList(),
         wanted: (day: Int) -> Boolean = { true },
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((folders: Int, ids: Collection<Long>) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
-        preFiltered: MutableSet<Long>? = null,
-    ): LongArray {
-        // A set, so overlapping folders do not count a photo twice. Only photos that pass [wanted] get in.
-        val ids = LinkedHashSet<Long>()
+    ): List<Photo> {
+        // A map, so overlapping folders do not count a photo twice.
+        val photos = LinkedHashMap<Long, Photo>()
+        val accepted = LinkedHashSet<Long>()
         var notified = false
         var scanned = 0
+        fun add(e: Entry) {
+            photos[e.fileId] = Photo(e.fileId, e.day, isSnapseed(e.href))
+            if (wanted(e.day)) accepted.add(e.fileId)
+        }
         if (tags.isNotEmpty()) {
-            listTaggedImageIds(folders, tags).filter { wanted(it.day) }.forEach {
-                ids.add(it.fileId)
-                if (isSnapseed(it.href)) preFiltered?.add(it.fileId)
-            }
-            onProgress?.invoke(1, ids)
-            if (ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
-            return ids.toLongArray()
+            listTaggedImageIds(folders, tags).forEach { add(it) }
+            onProgress?.invoke(1, accepted)
+            if (accepted.isNotEmpty()) onFirstImage?.invoke(accepted.random())
+            return photos.values.toList()
         }
         val queue = ArrayDeque<HttpUrl>()
         folders.forEach { queue.add(folderUrl(it)) }
@@ -110,21 +118,62 @@ class NextcloudClient(private val settings: Settings) {
                 if (e.isDir) {
                     url.resolve(e.href)?.let { queue.add(it) }
                 } else if (e.contentType.startsWith("image/") && e.fileId > 0) {
-                    if (wanted(e.day)) {
-                        ids.add(e.fileId)
-                        if (isSnapseed(e.href)) preFiltered?.add(e.fileId)
-                    }
-                    if (!notified && ids.size >= EARLY_POOL) {
+                    add(e)
+                    if (!notified && accepted.size >= EARLY_POOL) {
                         notified = true
-                        onFirstImage?.invoke(ids.random())
+                        onFirstImage?.invoke(accepted.random())
                     }
                 }
             }
-            onProgress?.invoke(++scanned, ids)
+            onProgress?.invoke(++scanned, accepted)
         }
         // Fewer photos than the pool size: pick from all of them.
-        if (!notified && ids.isNotEmpty()) onFirstImage?.invoke(ids.random())
-        return ids.toLongArray()
+        if (!notified && accepted.isNotEmpty()) onFirstImage?.invoke(accepted.random())
+        return photos.values.toList()
+    }
+
+    /**
+     * Images inside [folders] whose file id is above [afterId], i.e. added to the server since a file with that
+     * id was known. Asks the server's search, a page at a time in the order of the ids.
+     */
+    fun listNewImages(folders: List<String>, afterId: Long, isStopped: () -> Boolean = { false }): List<Photo> {
+        val found = LinkedHashMap<Long, Photo>()
+        for (folder in folders) {
+            var after = afterId
+            while (true) {
+                if (isStopped()) throw IOException("Cancelled")
+                val page = searchImagesAfter(folder, after)
+                page.filter { !it.isDir && it.contentType.startsWith("image/") && it.fileId > 0 }
+                    .forEach { found[it.fileId] = Photo(it.fileId, it.day, isSnapseed(it.href)) }
+                if (page.size < SEARCH_PAGE) break
+                after = page.maxOf { it.fileId }
+            }
+        }
+        return found.values.toList()
+    }
+
+    private fun searchImagesAfter(folder: String, afterId: Long): List<Entry> {
+        val path = folder.split('/').filter { it.isNotEmpty() }.joinToString("") { "/" + Uri.encode(it) }
+        val body = """<?xml version="1.0"?>
+<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:basicsearch>
+    <d:select><d:prop><oc:fileid/><d:getcontenttype/><d:resourcetype/><d:getlastmodified/><nc:metadata-photos-original_date_time/></d:prop></d:select>
+    <d:from><d:scope><d:href>/files/${Uri.encode(settings.username)}$path</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+    <d:where>
+      <d:and>
+        <d:gt><d:prop><oc:fileid/></d:prop><d:literal>$afterId</d:literal></d:gt>
+        <d:like><d:prop><d:getcontenttype/></d:prop><d:literal>image/%</d:literal></d:like>
+      </d:and>
+    </d:where>
+    <d:orderby><d:order><d:prop><oc:fileid/></d:prop><d:ascending/></d:order></d:orderby>
+    <d:limit><d:nresults>$SEARCH_PAGE</d:nresults></d:limit>
+  </d:basicsearch>
+</d:searchrequest>"""
+        val request = Request.Builder()
+            .url(base.newBuilder().addPathSegments("remote.php/dav/").build())
+            .header("Authorization", auth)
+            .method("SEARCH", body.toRequestBody("text/xml".toMediaType()))
+        return call(request, scanHttp, this) { parseMultiStatus(it.body!!.byteStream()) }
     }
 
     /** All system tags the user can see, sorted case-insensitively. */
@@ -288,6 +337,7 @@ class NextcloudClient(private val settings: Settings) {
 
     private companion object {
         const val EARLY_POOL = 50
+        const val SEARCH_PAGE = 1000
         const val TAGS_BODY = """<?xml version="1.0"?>
 <d:propfind xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns">
   <d:prop><oc:id/><oc:display-name/><oc:user-visible/></d:prop>

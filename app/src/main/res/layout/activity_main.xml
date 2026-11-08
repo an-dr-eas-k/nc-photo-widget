@@ -173,10 +173,6 @@
                 <include
                     android:id="@+id/rowTimeSpan"
                     layout="@layout/item_home_row" />
-
-                <include
-                    android:id="@+id/rowListRefresh"
-                    layout="@layout/item_home_row" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

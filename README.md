@@ -11,7 +11,7 @@ An Android home screen widget that shows a random picture from a folder on your 
 - Widget shapes (rounded corners, square, circle, oval, pill, cut corners) and picture filters (grayscale, noir, sepia, vivid, faded, warm, cool, faded film); pictures with "snapseed" in the file name are shown unfiltered
 - Widgets can be resized down to one tile
 - Automatic change at a configurable interval (15 minutes to 24 hours, or only manually)
-- Configurable refresh of the photo list (hourly to weekly, or manually), with the number of photos, last sync time and sync duration shown in the settings
+- The photo list is scanned once and then brought up to date twice a day (noon and midnight) by adding only the photos that are new on the server (every photo in the list is equally likely to be picked); the time span moves on by itself. The settings show the number of photos, last sync time and duration, and can rescan the whole list on demand
 - Tap the left edge for the previous picture, the right edge for the next one, the center to open the picture in the Nextcloud app, the bottom middle (widgets at least two cells high) to show or hide the date and time of the picture; the recent history is kept on the device, also for offline use. A red mark shows when the last request failed
 - Login via Nextcloud Login Flow v2: a revocable app password is stored, never your real password
 
