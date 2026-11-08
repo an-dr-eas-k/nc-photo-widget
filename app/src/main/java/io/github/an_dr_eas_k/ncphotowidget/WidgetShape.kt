@@ -7,6 +7,14 @@ import android.graphics.RectF
 enum class WidgetShape {
     ROUNDED, SQUARE, CIRCLE, OVAL, PILL, CUT;
 
+    companion object {
+        /** A normal rounded corner grows with the smaller side of the widget, within sensible limits. */
+        const val CORNER_RATIO = 0.09f
+
+        /** [pxPerDp] converts the limits of 4dp and 28dp. */
+        fun cornerFor(side: Float, pxPerDp: Float): Float = (side * CORNER_RATIO).coerceIn(4f * pxPerDp, 28f * pxPerDp)
+    }
+
     /** The outline inside a [width] x [height] box; [corner] is the size of a normal rounded corner. */
     fun path(width: Float, height: Float, corner: Float): Path {
         val path = Path()

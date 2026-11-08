@@ -7,7 +7,10 @@
         <item name="colorPrimaryContainer">#CDE5FF</item>
         <item name="colorOnPrimaryContainer">#00344F</item>
         <item name="colorSecondary">@color/brand_secondary</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:navigationBarColor">?attr/colorSurface</item>
+        <!-- The brand blue sets the tone; what can be tapped follows the system accent where there is one. -->
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.NC.MaterialAlertDialog</item>
+        <item name="materialButtonStyle">@style/Widget.NC.Button</item>
+        <item name="checkboxStyle">@style/Widget.NC.CheckBox</item>
+        <item name="linearProgressIndicatorStyle">@style/Widget.NC.LinearProgressIndicator</item>
     </style>
 </resources>

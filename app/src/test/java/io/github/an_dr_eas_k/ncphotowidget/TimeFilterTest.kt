@@ -69,4 +69,20 @@ class TimeFilterTest {
         assertEquals(false, TimeFilter(366).canRepeat)
         assertEquals(false, TimeFilter(0).canRepeat)
     }
+
+    @Test
+    fun dayRangesMatchAccepts() {
+        val filters = listOf(TimeFilter(0), TimeFilter(20), TimeFilter(20, true), TimeFilter(3, true), TimeFilter(365, true))
+        val todays = listOf(today, LocalDate.of(2026, 1, 5), LocalDate.of(2028, 2, 29), LocalDate.of(2027, 3, 1))
+        val first = LocalDate.of(1990, 1, 1).toEpochDay().toInt()
+        val last = LocalDate.of(2029, 1, 1).toEpochDay().toInt()
+        for (filter in filters) for (now in todays) {
+            val ranges = filter.dayRanges(now)
+            for (d in first..last) {
+                val expected = filter.accepts(d, now)
+                val actual = ranges == null || ranges.any { d in it }
+                assertEquals("$filter $now ${LocalDate.ofEpochDay(d.toLong())}", expected, actual)
+            }
+        }
+    }
 }

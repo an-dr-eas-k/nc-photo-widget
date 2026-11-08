@@ -48,7 +48,6 @@
     <string name="tags_none">No tag filter</string>
     <string name="error_no_tags">No tags found on the server</string>
     <string name="error_tags_failed">Could not load tags: %1$s</string>
-    <string name="label_list_refresh">Refresh the photo list</string>
     <string name="button_refresh_now">Refresh list</string>
     <string name="stats_none">Photo list not synced yet</string>
     <string name="stats_scanning">Scanning folders…</string>
@@ -80,7 +79,7 @@
         <item>Faded</item>
         <item>Warm</item>
         <item>Cool</item>
-        <item>Faded film (teal and warm)</item>
+        <item>Analog film</item>
     </string-array>
 
     <string-array name="shape_labels">
@@ -117,15 +116,6 @@
         <item>6 hours</item>
         <item>12 hours</item>
         <item>24 hours</item>
-        <item>Only manually</item>
-    </string-array>
-
-    <string-array name="list_refresh_labels">
-        <item>Every hour</item>
-        <item>Every 6 hours</item>
-        <item>Every 12 hours</item>
-        <item>Every day</item>
-        <item>Every week</item>
         <item>Only manually</item>
     </string-array>
 </resources>

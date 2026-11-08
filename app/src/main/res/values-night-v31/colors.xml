@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="interactive">@android:color/system_accent1_200</color>
+    <color name="on_interactive">@android:color/system_accent1_800</color>
+    <color name="interactive_container">@android:color/system_accent1_700</color>
+    <color name="on_interactive_container">@android:color/system_accent1_100</color>
+</resources>

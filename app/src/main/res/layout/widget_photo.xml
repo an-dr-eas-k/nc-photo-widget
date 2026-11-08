@@ -44,6 +44,21 @@
         android:src="@drawable/ic_widget_error"
         android:visibility="gone" />
 
+    <TextView
+        android:id="@+id/info"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|center_horizontal"
+        android:layout_marginBottom="10dp"
+        android:background="@drawable/bg_widget_info"
+        android:paddingStart="10dp"
+        android:paddingTop="4dp"
+        android:paddingEnd="10dp"
+        android:paddingBottom="4dp"
+        android:textColor="#FFFFFF"
+        android:textSize="12sp"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -55,11 +70,26 @@
             android:layout_height="match_parent"
             android:layout_weight="1" />
 
-        <FrameLayout
-            android:id="@+id/zone_center"
+        <!-- The bottom area only shows on widgets at least two cells high; the side zones win over it. -->
+        <LinearLayout
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_weight="2" />
+            android:layout_weight="2"
+            android:orientation="vertical">
+
+            <FrameLayout
+                android:id="@+id/zone_center"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="3" />
+
+            <FrameLayout
+                android:id="@+id/zone_bottom"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:visibility="gone" />
+        </LinearLayout>
 
         <FrameLayout
             android:id="@+id/zone_right"

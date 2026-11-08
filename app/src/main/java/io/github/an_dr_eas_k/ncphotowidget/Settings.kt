@@ -85,7 +85,6 @@ class Settings(context: Context) {
         val INTERVALS_MINUTES = listOf(15, 30, 60, 180, 360, 720, 1440, INTERVAL_MANUAL)
 
         /** 0 means the photo list is only refreshed manually. */
-        val LIST_REFRESH_HOURS = listOf(1, 6, 12, 24, 168, 0)
 
         fun normalizeServerUrl(input: String): String {
             val t = input.trim().trimEnd('/')
@@ -105,10 +104,6 @@ class WidgetConfig(context: Context, val widgetId: Int) {
     var tags: List<Tag>
         get() = prefs.getString("tags", "")?.split('\n').orEmpty().mapNotNull { Tag.decode(it) }
         set(v) = prefs.edit().putString("tags", v.joinToString("\n") { it.encode() }).apply()
-
-    var listRefreshHours: Int
-        get() = prefs.getInt("list_refresh_hours", 24)
-        set(v) = prefs.edit().putInt("list_refresh_hours", v).apply()
 
     var timeFilter: TimeFilter
         get() = TimeFilter(prefs.getInt("time_days", 0), prefs.getBoolean("time_repeat", false))
@@ -157,7 +152,6 @@ class WidgetConfig(context: Context, val widgetId: Int) {
                     .putString("tags", legacy.getString("tags", ""))
                     .putString("shape", legacy.getString("shape", null))
                     .putInt("interval", legacy.getInt("interval", 60))
-                    .putInt("list_refresh_hours", legacy.getInt("list_refresh_hours", 24))
                     .apply()
             }
             PhotoState.migrateLegacy(c, ids.first())

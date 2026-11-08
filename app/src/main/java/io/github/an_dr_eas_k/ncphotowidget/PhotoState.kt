@@ -9,8 +9,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** The state of one widget: a cached list of image ids plus a back/forward history of shown ones. */
 class PhotoState(private val c: Context, private val widgetId: Int) {
     private val prefs = c.getSharedPreferences(prefsName(widgetId), Context.MODE_PRIVATE)
-    private val listFile = File(WidgetFiles.dir(c, widgetId), "ids.txt")
-    private val listTmp = File(WidgetFiles.dir(c, widgetId), "ids.tmp")
+    private val list get() = PhotoList.of(c, widgetId)
 
     private fun load(): PhotoHistory {
         val p = prefs
@@ -28,9 +27,11 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         editor.apply()
     }
 
-    private fun <T> edit(change: PhotoHistory.() -> T): T {
+    // Workers of one widget can overlap (a scan showing a photo while a tap moves on), so a change is read,
+    // made and written without another one in between.
+    private fun <T> edit(change: PhotoHistory.() -> T): T = synchronized(historyLock) {
         val h = load()
-        return h.change().also { save(h) }
+        h.change().also { save(h) }
     }
 
     fun current(): Long? = load().current
@@ -39,13 +40,19 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
     fun shown(): Long? = prefs.getLong(KEY_SHOWN, -1).takeIf { it >= 0 }
 
     fun markShown(id: Long, plain: Boolean = false) =
-        prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_SHOWN_PLAIN, plain).putBoolean(KEY_FAILED, false).apply()
+        prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_SHOWN_PLAIN, plain).putBoolean(KEY_FAILED, false)
+            .remove(KEY_INFO).apply()
+
+    /** The date and time shown over the picture after a tap on the bottom of the widget; null while hidden. */
+    fun info(): String? = prefs.getString(KEY_INFO, null)
+
+    fun setInfo(info: String?) = prefs.edit().apply { if (info == null) remove(KEY_INFO) else putString(KEY_INFO, info) }.apply()
 
     /** Whether the shown picture is to be drawn without the picture filter. */
     fun shownIsPlain(): Boolean = prefs.getBoolean(KEY_SHOWN_PLAIN, false)
 
     /** Whether the list marks [id] as a picture that already has a look (a Snapseed export). */
-    fun isPreFiltered(id: Long): Boolean = listFile.takeIf { it.exists() }?.useLines { lines -> lines.any { it == "$id,s" } } ?: false
+    fun isPreFiltered(id: Long): Boolean = list.isPlain(id)
 
     /** Whether the last request for a picture failed; the widget then shows a warning. */
     fun failed(): Boolean = prefs.getBoolean(KEY_FAILED, false)
@@ -70,52 +77,69 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
 
     fun backup() = load()
 
-    fun restore(backup: PhotoHistory) = save(backup)
+    fun restore(backup: PhotoHistory) = synchronized(historyLock) { save(backup) }
+
+    /** Forgets the shown pictures but keeps the photo list, e.g. when only the time span changed. */
+    fun resetHistory() = synchronized(historyLock) {
+        prefs.edit().remove("history").remove("pos").remove(KEY_PREFETCH).apply()
+    }
 
     fun reset() {
-        listFile.delete()
+        list.clear()
         prefs.edit().clear().apply()
     }
 
-    // The first number of a line; lists written by a development build also had a day after a comma.
-    private fun cachedIds(): LongArray = listFile.takeIf { it.exists() }
-        ?.readLines()?.mapNotNull { it.substringBefore(',').toLongOrNull() }?.toLongArray() ?: LongArray(0)
+    private fun timeFilter() = WidgetConfig(c, widgetId).timeFilter
 
-    fun hasList() = cachedIds().isNotEmpty()
+    /** Whether there are photos at all, including those outside the time span. */
+    fun hasList() = !list.isEmpty()
 
-    /** The last complete list, or what a running first scan has found so far. */
-    fun knownIds(): LongArray = cachedIds().takeIf { it.isNotEmpty() } ?: partial[widgetId] ?: LongArray(0)
+    /** The photos of the list that are inside the time span now, or what a running first scan has found so far. */
+    fun knownIds(): LongArray = list.ids(timeFilter(), LocalDate.now()).takeIf { it.isNotEmpty() } ?: partial[widgetId] ?: LongArray(0)
 
-    fun hasScanned() = prefs.contains(KEY_LIST_TIME)
+    /** The day [id] was taken, as stored in the list. */
+    fun dayOf(id: Long): Int? = list.day(id)
 
-    /** True when the list was never scanned or is older than [refreshHours] (0 = manual only). */
-    fun needsRefresh(refreshHours: Int): Boolean {
-        if (!hasScanned()) return true
-        val age = System.currentTimeMillis() - prefs.getLong(KEY_LIST_TIME, 0)
-        return refreshHours > 0 && age >= refreshHours * HOUR_MS
+    /** Forgets a photo that is gone from the server. */
+    fun removeFromList(id: Long) = list.remove(id)
+
+    // The id marker is also what tells the list in its database from the text file of version 2.0, which is scanned again.
+    fun hasScanned() = prefs.contains(KEY_LIST_TIME) && prefs.contains(KEY_LAST_ID)
+
+    private fun recordSuccess(start: Long, lastId: Long) {
+        val end = System.currentTimeMillis()
+        prefs.edit()
+            .putLong(KEY_LIST_TIME, end)
+            .putLong(KEY_LIST_DURATION, end - start)
+            .putLong(KEY_LAST_ID, lastId)
+            .remove(KEY_LIST_ERROR)
+            .apply()
+        File(WidgetFiles.dir(c, widgetId), "ids.txt").delete()
     }
 
-    /** Scans the folders now and records when it happened, how long it took and how many photos it found. */
+    /**
+     * Scans the folders now and replaces the list, recording when it happened and how long it took.
+     * Returns the ids inside the time span.
+     */
     fun refreshList(
         client: NextcloudClient, folders: List<String>, tags: List<Tag>,
         onFirstImage: ((Long) -> Unit)? = null,
         onProgress: ((Int, Int) -> Unit)? = null,
         isStopped: () -> Boolean = { false },
     ): LongArray {
-        val preFiltered = HashSet<Long>()
-        val filter = WidgetConfig(c, widgetId).timeFilter
+        val filter = timeFilter()
         val today = LocalDate.now()
         val start = System.currentTimeMillis()
         var lastPartial = 0L
         val fresh = try {
-            client.listImageIds(folders, tags, { filter.accepts(it, today) }, onFirstImage, { scanned, ids ->
+            client.listImages(folders, tags, { filter.accepts(it, today) }, onFirstImage, { scanned, ids ->
                 val now = SystemClock.elapsedRealtime()
                 if (now - lastPartial >= PARTIAL_INTERVAL_MS) {
                     lastPartial = now
                     partial[widgetId] = ids.toLongArray()
                 }
                 onProgress?.invoke(scanned, ids.size)
-            }, isStopped, preFiltered)
+            }, isStopped)
         } catch (e: Exception) {
             // Kept so the settings screen can explain why the widget stays empty.
             if (!isStopped()) prefs.edit().putString(KEY_LIST_ERROR, e.describe()).apply()
@@ -123,42 +147,64 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         } finally {
             partial.remove(widgetId)
         }
-        val end = System.currentTimeMillis()
-        // Written atomically: taps may read the list while it is replaced.
-        // A line is the id, followed by ",s" for a Snapseed picture.
-        listTmp.writeText(fresh.joinToString("\n") { if (it in preFiltered) "$it,s" else "$it" })
-        listTmp.renameTo(listFile)
-        prefs.edit()
-            .putLong(KEY_LIST_TIME, end)
-            .putLong(KEY_LIST_DURATION, end - start)
-            .putInt(KEY_LIST_COUNT, fresh.size)
-            .remove(KEY_LIST_ERROR)
-            .apply()
-        return fresh
+        list.replaceAll(fresh)
+        recordSuccess(start, fresh.maxOfOrNull { it.id } ?: -1L)
+        return list.ids(filter, today)
+    }
+
+    /**
+     * Adds the photos that are new on the server since the last scan or update to the list. Nothing is removed,
+     * and the time span needs no work here as it is applied whenever a photo is picked. Scans instead when there
+     * is no list yet, or when tags are used: they can be put on old photos, so the (single) tag query is repeated
+     * in full.
+     */
+    fun updateList(
+        client: NextcloudClient, folders: List<String>, tags: List<Tag>,
+        onFirstImage: ((Long) -> Unit)? = null,
+        onProgress: ((Int, Int) -> Unit)? = null,
+        isStopped: () -> Boolean = { false },
+    ): LongArray {
+        val lastId = prefs.getLong(KEY_LAST_ID, -1L)
+        if (tags.isNotEmpty() || list.isEmpty() || lastId < 0) {
+            return refreshList(client, folders, tags, onFirstImage, onProgress, isStopped)
+        }
+        val start = System.currentTimeMillis()
+        val added = try {
+            client.listNewImages(folders, lastId, isStopped)
+        } catch (e: Exception) {
+            if (!isStopped()) prefs.edit().putString(KEY_LIST_ERROR, e.describe()).apply()
+            throw e
+        }
+        list.add(added)
+        recordSuccess(start, maxOf(lastId, added.maxOfOrNull { it.id } ?: lastId))
+        return list.ids(timeFilter(), LocalDate.now())
     }
 
     class ListStats(val timestamp: Long, val durationMs: Long, val count: Int, val error: String?)
 
+    /** The count is that of photos inside the time span right now. */
     fun listStats(): ListStats? {
         val p = prefs
         if (!p.contains(KEY_LIST_TIME) && !p.contains(KEY_LIST_ERROR)) return null
         return ListStats(
-            p.getLong(KEY_LIST_TIME, 0), p.getLong(KEY_LIST_DURATION, 0), p.getInt(KEY_LIST_COUNT, 0),
+            p.getLong(KEY_LIST_TIME, 0), p.getLong(KEY_LIST_DURATION, 0), list.count(timeFilter(), LocalDate.now()),
             p.getString(KEY_LIST_ERROR, null),
         )
     }
 
     companion object {
-        private const val HOUR_MS = 60L * 60 * 1000
         private const val PARTIAL_INTERVAL_MS = 2000L
         private const val KEY_LIST_TIME = "list_time"
         private const val KEY_LIST_DURATION = "list_duration"
-        private const val KEY_LIST_COUNT = "list_count"
+        private const val KEY_LAST_ID = "last_id"
         private const val KEY_LIST_ERROR = "list_error"
         private const val KEY_PREFETCH = "prefetch"
         private const val KEY_SHOWN = "shown"
         private const val KEY_SHOWN_PLAIN = "shown_plain"
         private const val KEY_FAILED = "failed"
+        private const val KEY_INFO = "info"
+
+        private val historyLock = Any()
 
         /** Photos found so far by running scans, usable before a scan has finished. */
         private val partial = ConcurrentHashMap<Int, LongArray>()
@@ -168,6 +214,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         /** Removes everything stored for a deleted widget. */
         fun delete(c: Context, widgetId: Int) {
             c.deleteSharedPreferences(prefsName(widgetId))
+            PhotoList.close(widgetId)
             WidgetFiles.dir(c, widgetId).deleteRecursively()
             partial.remove(widgetId)
         }
@@ -184,7 +231,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
             target.apply()
             old.edit().clear().apply()
             val dir = WidgetFiles.dir(c, widgetId)
-            for (name in listOf("ids.txt", "current.jpg", "buffer")) File(c.filesDir, name).renameTo(File(dir, name))
+            for (name in listOf("current.jpg", "buffer")) File(c.filesDir, name).renameTo(File(dir, name))
         }
     }
 }

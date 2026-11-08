@@ -3,4 +3,10 @@
     <color name="brand_primary">#0082C9</color>
     <color name="brand_primary_dark">#4DB3F0</color>
     <color name="brand_secondary">#4A6572</color>
+
+    <!-- Colours of what can be tapped. Overridden by the system accent on Android 12+ and for dark mode. -->
+    <color name="interactive">@color/brand_primary</color>
+    <color name="on_interactive">#FFFFFF</color>
+    <color name="interactive_container">#CDE5FF</color>
+    <color name="on_interactive_container">#00344F</color>
 </resources>

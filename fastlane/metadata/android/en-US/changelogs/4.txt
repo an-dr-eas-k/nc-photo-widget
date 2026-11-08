@@ -1,0 +1,1 @@
+The photo list is now scanned once and then only extended with new photos, so widgets refresh faster and use less data. The picture filter "Analog film" got a Polaroid look. Tap the bottom middle of a tall widget to show the photo date and time. The rounded corner scales with the widget size, and system bars and buttons follow your system colors.

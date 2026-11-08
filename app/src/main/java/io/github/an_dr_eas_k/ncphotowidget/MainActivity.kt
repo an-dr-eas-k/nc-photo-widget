@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.R as AppCompatR
 import androidx.appcompat.app.AppCompatActivity
@@ -40,7 +41,6 @@ class MainActivity : AppCompatActivity() {
     private var folders = listOf<String>()
     private var tags = listOf<Tag>()
     private var intervalIndex = 0
-    private var listRefreshIndex = 0
     private var shape = WidgetShape.ROUNDED
     private var filter = PhotoFilter.NONE
     private var timeFilter = TimeFilter()
@@ -87,6 +87,8 @@ class MainActivity : AppCompatActivity() {
         settings = Settings(this)
         AppCompatDelegate.setDefaultNightMode(nightMode(settings.themeMode))
         super.onCreate(savedInstanceState)
+        // Transparent system bars, so the page colour shows behind them.
+        enableEdgeToEdge()
         // The settings belong to one widget; without one there is nothing to edit.
         widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return finish()
@@ -117,7 +119,6 @@ class MainActivity : AppCompatActivity() {
         folders = config.folders
         tags = config.tags
         intervalIndex = Settings.INTERVALS_MINUTES.indexOf(config.intervalMinutes).coerceAtLeast(0)
-        listRefreshIndex = Settings.LIST_REFRESH_HOURS.indexOf(config.listRefreshHours).coerceAtLeast(0)
         shape = config.shape
         filter = config.filter
         timeFilter = config.timeFilter
@@ -126,7 +127,6 @@ class MainActivity : AppCompatActivity() {
             state.getStringArrayList(STATE_FOLDERS)?.let { folders = it }
             state.getStringArray(STATE_TAGS)?.let { lines -> tags = lines.mapNotNull { Tag.decode(it) } }
             intervalIndex = state.getInt(STATE_INTERVAL, intervalIndex)
-            listRefreshIndex = state.getInt(STATE_LIST_REFRESH, listRefreshIndex)
             server = state.getString(STATE_SERVER, server)
             shape = WidgetShape.entries.getOrElse(state.getInt(STATE_SHAPE, shape.ordinal)) { shape }
             filter = PhotoFilter.entries.getOrElse(state.getInt(STATE_FILTER, filter.ordinal)) { filter }
@@ -141,7 +141,6 @@ class MainActivity : AppCompatActivity() {
         setUpRow(R.id.rowTags, R.string.row_tags) { chooseTags() }
         setUpRow(R.id.rowTimeSpan, R.string.row_time_span) { chooseDays() }
         setUpRow(R.id.rowInterval, R.string.label_interval) { chooseInterval() }
-        setUpRow(R.id.rowListRefresh, R.string.label_list_refresh) { chooseListRefresh() }
         setUpRow(R.id.rowAccount, R.string.row_account) { showAccountDialog() }
         setUpRow(R.id.rowAppearance, R.string.label_appearance) { chooseTheme() }
         renderRows()
@@ -156,7 +155,6 @@ class MainActivity : AppCompatActivity() {
         outState.putStringArrayList(STATE_FOLDERS, ArrayList(folders))
         outState.putStringArray(STATE_TAGS, tags.map { it.encode() }.toTypedArray())
         outState.putInt(STATE_INTERVAL, intervalIndex)
-        outState.putInt(STATE_LIST_REFRESH, listRefreshIndex)
         outState.putString(STATE_SERVER, server)
         outState.putInt(STATE_SHAPE, shape.ordinal)
         outState.putInt(STATE_FILTER, filter.ordinal)
@@ -231,7 +229,6 @@ class MainActivity : AppCompatActivity() {
         setDetail(R.id.rowInterval, resources.getStringArray(R.array.interval_labels)[intervalIndex])
         findViewById<View>(R.id.rowInterval).findViewById<TextView>(R.id.value).text =
             resources.getStringArray(R.array.interval_short_labels)[intervalIndex]
-        setDetail(R.id.rowListRefresh, resources.getStringArray(R.array.list_refresh_labels)[listRefreshIndex])
         setDetail(R.id.rowAccount, accountDetail)
         setDetail(R.id.rowAppearance, resources.getStringArray(R.array.theme_labels)[settings.themeMode])
         statusLabel.setText(if (settings.isConfigured) R.string.home_connected else R.string.home_not_connected)
@@ -260,10 +257,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun chooseInterval() = chooseOne(R.string.label_interval, R.array.interval_labels, intervalIndex) {
         intervalIndex = it
-    }
-
-    private fun chooseListRefresh() = chooseOne(R.string.label_list_refresh, R.array.list_refresh_labels, listRefreshIndex) {
-        listRefreshIndex = it
     }
 
     private fun chooseShape() = chooseOne(R.string.label_widget_style, R.array.shape_labels, shape.ordinal) {
@@ -422,7 +415,9 @@ class MainActivity : AppCompatActivity() {
         val scanning = infos.firstOrNull {
             it.state == WorkInfo.State.RUNNING && it.progress.keyValueMap.containsKey(PhotoWorker.PROGRESS_START)
         }
-        val refreshPending = infos.any { !it.state.isFinished && PhotoWorker.ACTION_REFRESH in it.tags }
+        val refreshPending = infos.any {
+            !it.state.isFinished && (PhotoWorker.ACTION_REFRESH in it.tags || PhotoWorker.ACTION_UPDATE in it.tags)
+        }
         when {
             scanning != null -> {
                 statusCount.text = scanning.progress.getInt(PhotoWorker.PROGRESS_PHOTOS, 0).toString()
@@ -458,7 +453,7 @@ class MainActivity : AppCompatActivity() {
 
     /** Saves any pending changes and rescans the folders now, so the tile shows fresh numbers. */
     private fun refreshPhotoList() {
-        apply()
+        apply(rescan = true)
     }
 
     private fun save() {
@@ -472,15 +467,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    /** Stores the pending settings and starts a rescan; false (with a message) if they are not complete. */
-    private fun apply(): Boolean {
+    /**
+     * Stores the pending settings; false (with a message) if they are not complete.
+     * The photo list is rescanned only on request, when the folders or tags changed, or if it was never scanned.
+     * A changed time span is applied to the list as it is.
+     */
+    private fun apply(rescan: Boolean = false): Boolean {
         if (!settings.isConfigured) return false.also { toast(R.string.error_not_logged_in) }
         if (folders.isEmpty()) return false.also { toast(R.string.error_no_folder) }
-        val filterChanged = folders != config.folders || tags != config.tags || timeFilter != config.timeFilter
+        val sourceChanged = folders != config.folders || tags != config.tags
+        val timeChanged = timeFilter != config.timeFilter
         config.folders = folders
         config.tags = tags
         config.intervalMinutes = Settings.INTERVALS_MINUTES[intervalIndex]
-        config.listRefreshHours = Settings.LIST_REFRESH_HOURS[listRefreshIndex]
         config.timeFilter = timeFilter
         if (shape != config.shape || filter != config.filter) {
             config.shape = shape
@@ -488,9 +487,14 @@ class MainActivity : AppCompatActivity() {
             WidgetUpdater.update(this, widgetId)
         }
 
-        if (filterChanged) state.reset()
+        if (sourceChanged) state.reset() else if (timeChanged) state.resetHistory()
         Scheduler.apply(this)
-        Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_REFRESH)
+        if (rescan || sourceChanged || !state.hasScanned()) {
+            Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_REFRESH)
+        } else if (timeChanged) {
+            // The list stays; the widget moves on to a photo of the new time span.
+            Scheduler.enqueue(this, widgetId, PhotoWorker.ACTION_NEXT)
+        }
         return true
     }
 
@@ -501,7 +505,6 @@ class MainActivity : AppCompatActivity() {
         const val STATE_FOLDERS = "folders"
         const val STATE_TAGS = "tags"
         const val STATE_INTERVAL = "interval"
-        const val STATE_LIST_REFRESH = "list_refresh"
         const val STATE_SERVER = "server"
         const val STATE_SHAPE = "shape"
         const val STATE_FILTER = "filter"
