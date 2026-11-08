@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="interactive">@color/brand_primary_dark</color>
+    <color name="on_interactive">#00344F</color>
+    <color name="interactive_container">#004A73</color>
+    <color name="on_interactive_container">#CDE5FF</color>
+</resources>

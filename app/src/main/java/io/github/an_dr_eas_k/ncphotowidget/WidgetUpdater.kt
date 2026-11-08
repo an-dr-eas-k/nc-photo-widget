@@ -70,9 +70,13 @@ object WidgetUpdater {
         val text = message ?: if (bitmap == null) c.getString(placeholder) else null
 
         val manager = AppWidgetManager.getInstance(c)
-        val filter = if (PhotoState(c, widgetId).shownIsPlain()) PhotoFilter.NONE else config.filter
-        val image = shaped(c, bitmap, config.shape, filter, manager.getAppWidgetOptions(widgetId))
-        manager.updateAppWidget(widgetId, views(c, widgetId, image, text, loading, PhotoState(c, widgetId).failed()))
+        val state = PhotoState(c, widgetId)
+        val filter = if (state.shownIsPlain()) PhotoFilter.NONE else config.filter
+        val size = sizeDp(c, manager.getAppWidgetOptions(widgetId))
+        val image = shaped(c, bitmap, config.shape, filter, size)
+        // The bottom area needs a widget of at least two cells in height.
+        val tall = size.second >= TALL_DP
+        manager.updateAppWidget(widgetId, views(c, widgetId, image, text, loading, state.failed(), tall, if (tall) state.info() else null))
     }
 
     /** Shows the spinner without resending the picture, which would make the widget flicker. */
@@ -84,20 +88,26 @@ object WidgetUpdater {
         AppWidgetManager.getInstance(c).partiallyUpdateAppWidget(widgetId, views)
     }
 
-    private fun views(c: Context, widgetId: Int, image: Bitmap, text: String?, loading: Boolean, failed: Boolean): RemoteViews {
+    private fun views(
+        c: Context, widgetId: Int, image: Bitmap, text: String?, loading: Boolean, failed: Boolean, tall: Boolean, info: String?,
+    ): RemoteViews {
         val views = RemoteViews(c.packageName, R.layout.widget_photo)
         views.setImageViewBitmap(R.id.image, image)
         views.setTextViewText(R.id.message, text ?: "")
         views.setViewVisibility(R.id.message, if (text == null) View.GONE else View.VISIBLE)
         views.setViewVisibility(R.id.loading, if (loading) View.VISIBLE else View.GONE)
         views.setViewVisibility(R.id.failed, if (failed && !loading) View.VISIBLE else View.GONE)
+        views.setTextViewText(R.id.info, info ?: "")
+        views.setViewVisibility(R.id.info, if (info == null) View.GONE else View.VISIBLE)
+        views.setViewVisibility(R.id.zone_bottom, if (tall) View.VISIBLE else View.GONE)
         // Request codes differ per widget, or the taps of one widget would replace those of another.
-        views.setOnClickPendingIntent(R.id.zone_left, broadcast(c, PhotoWorker.ACTION_PREV, widgetId, widgetId * 3))
-        views.setOnClickPendingIntent(R.id.zone_right, broadcast(c, PhotoWorker.ACTION_NEXT, widgetId, widgetId * 3 + 1))
+        views.setOnClickPendingIntent(R.id.zone_left, broadcast(c, PhotoWorker.ACTION_PREV, widgetId, widgetId * 4))
+        views.setOnClickPendingIntent(R.id.zone_right, broadcast(c, PhotoWorker.ACTION_NEXT, widgetId, widgetId * 4 + 1))
+        views.setOnClickPendingIntent(R.id.zone_bottom, broadcast(c, PhotoWorker.ACTION_INFO, widgetId, widgetId * 4 + 3))
         views.setOnClickPendingIntent(
             R.id.zone_center,
             PendingIntent.getActivity(
-                c, widgetId * 3 + 2,
+                c, widgetId * 4 + 2,
                 Intent(c, OpenPhotoActivity::class.java).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId),
                 PENDING_FLAGS,
             ),
@@ -106,12 +116,9 @@ object WidgetUpdater {
     }
 
     /** The picture cropped to fill the widget and cut to [shape]; transparent outside of it. */
-    private fun shaped(c: Context, picture: Bitmap?, shape: WidgetShape, filter: PhotoFilter, options: Bundle): Bitmap {
+    private fun shaped(c: Context, picture: Bitmap?, shape: WidgetShape, filter: PhotoFilter, size: Pair<Int, Int>): Bitmap {
         val density = c.resources.displayMetrics.density
-        val portrait = c.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
-        fun dp(key: String) = options.getInt(key, 0).takeIf { it > 0 } ?: DEFAULT_SIZE_DP
-        val widthDp = dp(if (portrait) AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH else AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH)
-        val heightDp = dp(if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+        val (widthDp, heightDp) = size
         // Keeps the bitmap within what a widget may carry.
         val scale = minOf(density, MAX_SIDE_PX / maxOf(widthDp, heightDp))
         val w = (widthDp * scale).toInt()
@@ -131,8 +138,17 @@ object WidgetUpdater {
             paint.color = Color.parseColor("#222222")
         }
         val result = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        Canvas(result).drawPath(shape.path(w.toFloat(), h.toFloat(), CORNER_DP * scale), paint)
+        Canvas(result).drawPath(shape.path(w.toFloat(), h.toFloat(), WidgetShape.cornerFor(minOf(w, h).toFloat(), scale)), paint)
         return result
+    }
+
+    /** The widget's current width and height in dp. */
+    private fun sizeDp(c: Context, options: Bundle): Pair<Int, Int> {
+        val portrait = c.resources.configuration.orientation != android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        fun dp(key: String) = options.getInt(key, 0).takeIf { it > 0 } ?: DEFAULT_SIZE_DP
+        val width = dp(if (portrait) AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH else AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH)
+        val height = dp(if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT)
+        return width to height
     }
 
     /** Shows the spinner without resending the picture, which would make the widget flicker. */
@@ -145,7 +161,8 @@ object WidgetUpdater {
     }
 
     private const val DEFAULT_SIZE_DP = 180
-    private const val CORNER_DP = 16
+    // Two cells are about 110dp high; one cell is 40-70dp.
+    private const val TALL_DP = 100
     private const val MAX_SIDE_PX = 1000f
 
     private const val PENDING_FLAGS = PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT

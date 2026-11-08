@@ -12,6 +12,7 @@ import android.view.View
 import android.widget.Button
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.R as AppCompatR
 import androidx.appcompat.app.AppCompatActivity
@@ -87,6 +88,8 @@ class MainActivity : AppCompatActivity() {
         settings = Settings(this)
         AppCompatDelegate.setDefaultNightMode(nightMode(settings.themeMode))
         super.onCreate(savedInstanceState)
+        // Transparent system bars, so the page colour shows behind them.
+        enableEdgeToEdge()
         // The settings belong to one widget; without one there is nothing to edit.
         widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return finish()

@@ -22,8 +22,8 @@ class ShapePreviewView(context: Context, attrs: AttributeSet? = null) : View(con
     override fun onDraw(canvas: Canvas) {
         val w = width.toFloat()
         val h = height.toFloat()
-        // A real widget is about 180dp wide, with 16dp corners.
-        val corner = 16 * resources.displayMetrics.density * w / (180 * resources.displayMetrics.density)
+        // Corners scale with the size of a real widget, so the preview shows the same proportion.
+        val corner = minOf(w, h) * WidgetShape.CORNER_RATIO
         canvas.save()
         canvas.clipPath(shape.path(w, h, corner))
 

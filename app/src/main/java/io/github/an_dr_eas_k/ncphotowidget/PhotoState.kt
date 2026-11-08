@@ -39,7 +39,13 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
     fun shown(): Long? = prefs.getLong(KEY_SHOWN, -1).takeIf { it >= 0 }
 
     fun markShown(id: Long, plain: Boolean = false) =
-        prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_SHOWN_PLAIN, plain).putBoolean(KEY_FAILED, false).apply()
+        prefs.edit().putLong(KEY_SHOWN, id).putBoolean(KEY_SHOWN_PLAIN, plain).putBoolean(KEY_FAILED, false)
+            .remove(KEY_INFO).apply()
+
+    /** The date and time shown over the picture after a tap on the bottom of the widget; null while hidden. */
+    fun info(): String? = prefs.getString(KEY_INFO, null)
+
+    fun setInfo(info: String?) = prefs.edit().apply { if (info == null) remove(KEY_INFO) else putString(KEY_INFO, info) }.apply()
 
     /** Whether the shown picture is to be drawn without the picture filter. */
     fun shownIsPlain(): Boolean = prefs.getBoolean(KEY_SHOWN_PLAIN, false)
@@ -159,6 +165,7 @@ class PhotoState(private val c: Context, private val widgetId: Int) {
         private const val KEY_SHOWN = "shown"
         private const val KEY_SHOWN_PLAIN = "shown_plain"
         private const val KEY_FAILED = "failed"
+        private const val KEY_INFO = "info"
 
         /** Photos found so far by running scans, usable before a scan has finished. */
         private val partial = ConcurrentHashMap<Int, LongArray>()

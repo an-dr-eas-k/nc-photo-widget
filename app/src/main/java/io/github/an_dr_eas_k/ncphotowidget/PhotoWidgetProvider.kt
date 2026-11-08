@@ -40,6 +40,19 @@ class PhotoWidgetProvider : AppWidgetProvider() {
                 WidgetUpdater.showLoading(context, id)
                 Scheduler.enqueue(context, id, intent.action!!)
             }
+            PhotoWorker.ACTION_INFO -> {
+                val id = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
+                if (id == AppWidgetManager.INVALID_APPWIDGET_ID) return
+                val state = PhotoState(context, id)
+                if (state.info() != null) {
+                    // A second tap hides the date again.
+                    state.setInfo(null)
+                    WidgetUpdater.update(context, id)
+                } else {
+                    WidgetUpdater.showLoading(context, id)
+                    Scheduler.enqueue(context, id, PhotoWorker.ACTION_INFO)
+                }
+            }
             Intent.ACTION_MY_PACKAGE_REPLACED -> {
                 WidgetConfig.migrateLegacy(context)
                 WidgetUpdater.updateAll(context)

@@ -15,7 +15,9 @@ import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.IOException
 import java.io.InputStream
+import java.time.LocalDateTime
 import java.time.ZoneId
+import java.time.ZoneOffset
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
@@ -57,7 +59,9 @@ class NextcloudClient(private val settings: Settings) {
     private val auth = Credentials.basic(settings.username, settings.appPassword)
     private val base = settings.serverUrl.toHttpUrl()
 
-    private class Entry(val href: String, val isDir: Boolean, val contentType: String, val fileId: Long, val day: Int)
+    private class Entry(val href: String, val isDir: Boolean, val contentType: String, val fileId: Long, val time: LocalDateTime?) {
+        val day: Int get() = time?.toLocalDate()?.toEpochDay()?.toInt() ?: NO_DAY
+    }
 
     private fun folderUrl(folder: String): HttpUrl {
         val url = base.newBuilder()
@@ -213,23 +217,23 @@ class NextcloudClient(private val settings: Settings) {
         var isDir = false
         var type = ""
         var fileId = -1L
-        var taken = NO_DAY
-        var modified = NO_DAY
+        var taken: LocalDateTime? = null
+        var modified: LocalDateTime? = null
         var event = parser.eventType
         while (event != XmlPullParser.END_DOCUMENT) {
             if (event == XmlPullParser.START_TAG) {
                 when (parser.name) {
-                    "response" -> { href = ""; isDir = false; type = ""; fileId = -1L; taken = NO_DAY; modified = NO_DAY }
+                    "response" -> { href = ""; isDir = false; type = ""; fileId = -1L; taken = null; modified = null }
                     "href" -> href = parser.nextText()
                     "getcontenttype" -> type = parser.nextText()
                     "fileid" -> fileId = parser.nextText().toLongOrNull() ?: -1L
                     "collection" -> isDir = true
-                    "getlastmodified" -> modified = httpDay(parser.nextText())
-                    "metadata-photos-original_date_time" -> taken = unixDay(parser.nextText())
+                    "getlastmodified" -> modified = httpTime(parser.nextText())
+                    "metadata-photos-original_date_time" -> taken = unixTime(parser.nextText())
                 }
             } else if (event == XmlPullParser.END_TAG && parser.name == "response") {
                 // The date taken is what the Photos app records; the file date is the fallback.
-                entries.add(Entry(href, isDir, type, fileId, if (taken != NO_DAY) taken else modified))
+                entries.add(Entry(href, isDir, type, fileId, taken ?: modified))
             }
             event = parser.next()
         }
@@ -253,17 +257,34 @@ class NextcloudClient(private val settings: Settings) {
     private fun isSnapseed(href: String) =
         Uri.decode(href.trimEnd('/').substringAfterLast('/')).contains("snapseed", ignoreCase = true)
 
-    /** Day of an HTTP date such as "Mon, 02 Jan 2023 10:00:00 GMT", in the local time zone. */
-    private fun httpDay(text: String): Int = try {
+    /** Local time of an HTTP date such as "Mon, 02 Jan 2023 10:00:00 GMT". */
+    private fun httpTime(text: String): LocalDateTime? = try {
         ZonedDateTime.parse(text.trim(), DateTimeFormatter.RFC_1123_DATE_TIME)
-            .withZoneSameInstant(ZoneId.systemDefault()).toLocalDate().toEpochDay().toInt()
+            .withZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
     } catch (e: DateTimeParseException) {
-        NO_DAY
+        null
     }
 
-    /** Day of a Unix time in seconds. The Photos app stores the clock time of the picture as if it were UTC. */
-    private fun unixDay(text: String): Int =
-        text.trim().toLongOrNull()?.let { Math.floorDiv(it, 86400L).toInt() } ?: NO_DAY
+    /** Time of a Unix time in seconds. The Photos app stores the clock time of the picture as if it were UTC. */
+    private fun unixTime(text: String): LocalDateTime? =
+        text.trim().toLongOrNull()?.let { LocalDateTime.ofEpochSecond(it, 0, ZoneOffset.UTC) }
+
+    /** When the photo was taken, or else last modified; null if the server does not know the file. */
+    fun fetchDateTime(fileId: Long): LocalDateTime? {
+        val body = """<?xml version="1.0"?>
+<d:searchrequest xmlns:d="DAV:" xmlns:oc="http://owncloud.org/ns" xmlns:nc="http://nextcloud.org/ns">
+  <d:basicsearch>
+    <d:select><d:prop><d:getlastmodified/><nc:metadata-photos-original_date_time/></d:prop></d:select>
+    <d:from><d:scope><d:href>/files/${Uri.encode(settings.username)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>
+    <d:where><d:eq><d:prop><oc:fileid/></d:prop><d:literal>$fileId</d:literal></d:eq></d:where>
+  </d:basicsearch>
+</d:searchrequest>"""
+        val request = Request.Builder()
+            .url(base.newBuilder().addPathSegments("remote.php/dav/").build())
+            .header("Authorization", auth)
+            .method("SEARCH", body.toRequestBody("text/xml".toMediaType()))
+        return call(request, http, this) { parseMultiStatus(it.body!!.byteStream()) }.firstOrNull { !it.isDir }?.time
+    }
 
     private companion object {
         const val EARLY_POOL = 50
