@@ -31,6 +31,8 @@ android {
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // The embedded git revision differs between local and F-Droid builds and breaks reproducibility.
+            vcsInfo.include = false
             signingConfigs.findByName("release")?.let { signingConfig = it }
         }
     }
